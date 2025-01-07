@@ -1,0 +1,7 @@
+train: "D:/Repository/fruit-detection-grading/data/train/images"
+val: "D:/Repository/fruit-detection-grading/data/validate/images"
+test: "D:/Repository/fruit-detection-grading/datasets/test/images"
+
+
+nc: 3  # Number of classes
+names: ['banana', 'apple','orange']  # List of class names
