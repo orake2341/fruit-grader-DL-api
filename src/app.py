@@ -11,12 +11,14 @@ import tempfile
 from flask_cors import CORS
 import base64
 from io import BytesIO
+from ultralytics import YOLO
 
 app = Flask(__name__)
 CORS(app)
 
 
-def predict_image(img_path):
+# VGG11
+def predict_image(img_path, label):
     # Define the model structure
     vgg11 = models.vgg11(pretrained=False)
     vgg11.classifier = nn.Sequential(
@@ -37,7 +39,10 @@ def predict_image(img_path):
     )
 
     # Load the saved model weights
-    vgg11.load_state_dict(torch.load("../models/vgg11_freshness_model.pth"))
+    if label == "banana":
+        vgg11.load_state_dict(torch.load("../models/banana_vgg11_freshness_model.pth"))
+    elif label == "apple":
+        vgg11.load_state_dict(torch.load("../models/apple_vgg11_freshness_model.pth"))
     vgg11.eval()  # Set the model to evaluation mode
 
     # Move to GPU if available
@@ -66,92 +71,55 @@ def predict_image(img_path):
 
 def get_yolo_preds(img_path):
     """
-    Run YOLO predictions, save cropped fruits, classify them, and label the entire image.
+    Run YOLOv8 predictions, save cropped fruits, classify them, and label the entire image.
     Returns the classification, confidence level, and grade.
     """
-    labels_path = "../models/coco.txt"
-    yolo_cfg = "../models/yolov3.cfg"
-    yolo_weights = "../models/yolov3.weights"
-    confidence_threshold = 0.5
-    overlapping_threshold = 0.3
+    model = YOLO("../models/yolov3.pt")  # Load pre-trained YOLOv8 model
+    results = model(img_path)[0]  # Run inference on the image
 
-    # Load COCO labels
-    with open(labels_path, "r", encoding="utf-8") as f:
-        labels = f.read().strip().split("\n")
-
-    # Initialize YOLO model
-    net = cv2.dnn.readNetFromDarknet(yolo_cfg, yolo_weights)
-    if cv2.cuda.getCudaEnabledDeviceCount() > 0:
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-
-    # Read and preprocess input image
     image = cv2.imread(img_path)
-    (H, W) = image.shape[:2]
-    blob = cv2.dnn.blobFromImage(image, 1 / 255.0, (416, 416), swapRB=True, crop=False)
-    net.setInput(blob)
-    layer_outputs = net.forward(
-        [net.getLayerNames()[i - 1] for i in net.getUnconnectedOutLayers().flatten()]
-    )
+    detected_fruits = []
 
-    boxes, confidences, classIDs = [], [], []
+    for box in results.boxes:
+        x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box coordinates
+        confidence = float(box.conf[0])
+        class_id = int(box.cls[0])
+        label = model.names[class_id]  # Get class label
 
-    for output in layer_outputs:
-        for detection in output:
-            scores = detection[5:]
-            classID = np.argmax(scores)
-            confidence = scores[classID]
+        # Filter only fruit-related classes (modify as needed)
+        if label.lower() in ["apple", "banana", "orange"]:
+            cropped_fruit = image[y1:y2, x1:x2]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_img:
+                cropped_fruit_path = temp_img.name
+                cv2.imwrite(cropped_fruit_path, cropped_fruit)
+            grade = predict_image(cropped_fruit_path, label.lower())
 
-            if confidence > confidence_threshold and classID in (46, 47, 49):
-                box = detection[0:4] * np.array([W, H, W, H])
-                (centerX, centerY, width, height) = box.astype("int")
-                x = int(centerX - (width / 2))
-                y = int(centerY - (height / 2))
-                boxes.append([x, y, int(width), int(height)])
-                confidences.append(float(confidence))
-                classIDs.append(classID)
+            # Draw bounding box on the image
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(
+                image,
+                f"{label}: {grade:.2f}",
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
 
-    indices = cv2.dnn.NMSBoxes(
-        boxes, confidences, confidence_threshold, overlapping_threshold
-    )
+            detected_fruits.append(
+                {
+                    "label": label,
+                    "confidence": confidence,
+                    "grade": grade,
+                    "path": cropped_fruit_path,
+                }
+            )
 
-    if len(indices) == 0:
-        return jsonify({"results": [], "message": "No objects detected"})
-
-    results = []
-
-    for i in indices.flatten():
-        classID = classIDs[i]
-        confidence = confidences[i]
-        label = labels[classID]
-
-        # Crop fruit and grade
-        (x, y, w, h) = boxes[i]
-        cropped_fruit = image[y : y + h, x : x + w]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_img:
-            cropped_fruit_path = temp_img.name
-            cv2.imwrite(cropped_fruit_path, cropped_fruit)
-        grade = predict_image(cropped_fruit_path)
-
-        # Draw bounding box on the original image
-        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(
-            image,
-            f"{label}: {grade}",
-            (x, y - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            2,
-        )
-
-        results.append({"label": label, "confidence": confidence, "grade": grade})
-
-    # Encode image to base64
+    # Encode processed image to base64
     _, buffer = cv2.imencode(".jpg", image)
     image_base64 = base64.b64encode(buffer).decode("utf-8")
 
-    return {"results": results, "image": image_base64}
+    return {"results": detected_fruits, "image": image_base64}
 
 
 @app.route("/predict", methods=["POST"])

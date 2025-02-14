@@ -10,9 +10,7 @@ from sklearn.model_selection import train_test_split
 from PIL import Image
 
 # Load the CSV file
-df = pd.read_csv(
-    r"D:\Repository\fruit-detection-grading\data\cropped\labels\vgg11_freshness_data.csv"
-)
+df = pd.read_csv("../../data/orange_freshness.csv")
 
 
 # Define a custom dataset class
@@ -44,7 +42,7 @@ transform = transforms.Compose(
 )
 
 # Prepare dataset
-image_directory = "../data/cropped/images"
+image_directory = "../../data/Orangecropped"
 image_paths = [
     os.path.join(image_directory, name) for name in df["image_name"].tolist()
 ]
@@ -132,9 +130,9 @@ for epoch in range(num_epochs):
             val_loss += loss.item()
 
     print(
-        f"Epoch [{epoch+1}/{num_epochs}], "
-        f"Train Loss: {train_loss/len(train_loader):.4f}, "
-        f"Validation Loss: {val_loss/len(val_loader):.4f}"
+        f"Epoch [{epoch + 1}/{num_epochs}], "
+        f"Train Loss: {train_loss / len(train_loader):.4f}, "
+        f"Validation Loss: {val_loss / len(val_loader):.4f}"
     )
 
 # Test phase
@@ -149,7 +147,7 @@ with torch.no_grad():
         loss = criterion(outputs, labels)
         test_loss += loss.item()
 
-print(f"Test Loss: {test_loss/len(test_loader):.4f}")
+print(f"Test Loss: {test_loss / len(test_loader):.4f}")
 
 # Save the trained model
-torch.save(vgg11.state_dict(), "vgg11_freshness_model.pth")
+torch.save(vgg11.state_dict(), "Orange_vgg11_freshness_model.pth")
