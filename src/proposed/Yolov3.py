@@ -4,18 +4,18 @@ import os
 from ultralytics import YOLO
 
 # Load YOLOv8 model (or change to 'yolov3.pt' if using YOLOv3)
-model = YOLO("../../models/best.pt")
+model = YOLO("yolov3.pt")
 
 # Set device to GPU if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 
 # COCO class index for banana
-BANANA_CLASS_ID = 0
+BANANA_CLASS_ID = 46
 
 # Input and output folders
 input_folder = "../../data/AugmentedBanana"
-output_folder = "../../data/New folder"
+output_folder = "../../data/Bananacropped"
 os.makedirs(output_folder, exist_ok=True)
 
 # Process all images in the folder
