@@ -14,8 +14,8 @@ model.to(device)
 BANANA_CLASS_ID = 0
 
 # Input and output folders
-input_folder = "../../data/AugmentedBanana"
-output_folder = "../../data/New folder"
+input_folder = "../../data/b3"
+output_folder = "../../data/ba3"
 os.makedirs(output_folder, exist_ok=True)
 
 # Process all images in the folder

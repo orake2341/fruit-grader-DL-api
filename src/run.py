@@ -23,18 +23,17 @@ def load_vgg11_model(label):
     vgg11.classifier = nn.Sequential(
         nn.Linear(25088, 4069),
         nn.ReLU(),
-        nn.Dropout(0.6),
+        nn.Dropout(0.5),
         nn.Linear(4069, 4069),
         nn.ReLU(),
-        nn.Dropout(0.6),
         nn.Linear(4069, 1096),
         nn.ReLU(),
-        nn.Dropout(0.6),
+        nn.Dropout(0.3),
         nn.Linear(1096, 296),
         nn.ReLU(),
         nn.Linear(296, 56),
         nn.ReLU(),
-        nn.Linear(56, 1),
+        nn.Linear(56, 1),  # Single output for regression (freshness grade)
     )
     model_path = f"../models/{label}_vgg11_freshness_model.pth"
     vgg11.load_state_dict(torch.load(model_path))

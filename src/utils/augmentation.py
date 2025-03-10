@@ -5,18 +5,19 @@ import numpy as np
 
 # Define individual augmentations
 augmentations = {
-    "rotate90": A.RandomRotate90(p=1.0),
     "rotate": A.Rotate(
-        limit=(-60, 60), p=1.0, border_mode=cv2.BORDER_REPLICATE, crop_border=False
+        limit=30, border_mode=cv2.BORDER_REPLICATE, crop_border=False, p=1.0
     ),
-    "brightness": A.RandomBrightnessContrast(
-        brightness_limit=0.2, contrast_limit=0, p=1.0
+    "dropout": A.CoarseDropout(
+        num_holes_range=(1, 10),  # Randomly drop between 1 to 10 regions
+        hole_height_range=(20, 50),  # Random height between 20 and 50 pixels
+        hole_width_range=(20, 50),  # Random width between 20 and 50 pixels
+        p=1.0,
     ),
-    "contrast": A.RandomBrightnessContrast(
-        brightness_limit=0, contrast_limit=0.2, p=1.0
+    "sharpen": A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1.0),
+    "brightness_contrast": A.RandomBrightnessContrast(
+        brightness_limit=0.2, contrast_limit=0.2, p=1.0
     ),
-    "erosion": A.Emboss(p=1.0),  # Simulates erosion effect
-    "remove_regions": A.CoarseDropout(max_holes=10, max_height=50, max_width=50, p=1.0),
 }
 
 
@@ -38,12 +39,6 @@ def process_folder(input_folder, output_folder):
             # Save original image
             cv2.imwrite(os.path.join(output_folder, f"{base_name}_original.png"), image)
 
-            # # Create and save mirrored version
-            # mirrored_image = cv2.flip(image, 1)
-            # cv2.imwrite(
-            #     os.path.join(output_folder, f"{base_name}_mirrored.png"), mirrored_image
-            # )
-
             # Apply each augmentation separately to original and mirrored
             for aug_name, aug in augmentations.items():
                 augmented = aug(image=image)["image"]
@@ -51,18 +46,9 @@ def process_folder(input_folder, output_folder):
                 cv2.imwrite(os.path.join(output_folder, output_filename), augmented)
                 print(f"Saved: {output_filename}")
 
-                # # Apply augmentation to mirrored image
-                # mirrored_augmented = aug(image=mirrored_image)["image"]
-                # mirrored_output_filename = f"{base_name}_mirrored_{aug_name}.png"
-                # cv2.imwrite(
-                #     os.path.join(output_folder, mirrored_output_filename),
-                #     mirrored_augmented,
-                # )
-                # print(f"Saved: {mirrored_output_filename}")
-
 
 # Input and output folder paths
-input_folder = "../../data/Orange"
-output_folder = "../../data/AugmentedOrange"
+input_folder = "../../data/Dataset/train"
+output_folder = "../../data/Dataset/aug"
 
 process_folder(input_folder, output_folder)
