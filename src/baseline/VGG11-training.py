@@ -11,30 +11,10 @@ from PIL import Image
 import albumentations as A
 import cv2
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Load the CSV file
-df = pd.read_csv("../../data/Dataset/Banana.csv")
-
-# Define Albumentations augmentations
-albumentations_transform = A.Compose(
-    [
-        A.Rotate(limit=30, border_mode=cv2.BORDER_REPLICATE, p=0.5),
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.2),
-        A.GaussianBlur(blur_limit=(3, 5), p=0.3),
-        A.HueSaturationValue(
-            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5
-        ),
-        A.CoarseDropout(
-            num_holes_range=(1, 10),
-            hole_height_range=(20, 50),
-            hole_width_range=(20, 50),
-            p=0.5,
-        ),
-        A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=0.5),
-        A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-    ]
-)
+df = pd.read_csv("../../data/Dataset/Vgg11/orange.csv")
 
 # Define standard PyTorch transforms (for normalization & tensor conversion)
 torch_transform = transforms.Compose(
@@ -48,26 +28,50 @@ torch_transform = transforms.Compose(
 
 # Define a custom dataset class
 class FreshnessDataset(Dataset):
-    def __init__(self, image_paths, labels, transform=None, apply_augmentations=False):
+    def __init__(
+        self,
+        image_paths,
+        labels,
+        transform=None,
+        apply_augmentations=False,
+        num_augments=4,
+    ):
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
         self.apply_augmentations = apply_augmentations
+        self.num_augments = num_augments if apply_augmentations else 1
+
+        # Define augmentation transformations
+        self.augmentations = [
+            A.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1),
+            A.CoarseDropout(
+                num_holes_range=(1, 10),
+                hole_height_range=(50, 50),
+                hole_width_range=(50, 50),
+                p=1,
+            ),
+            A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1),
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1),
+        ]
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.image_paths) * self.num_augments
 
     def __getitem__(self, idx):
-        image_path = self.image_paths[idx]
-        label = self.labels[idx]
+        original_idx = idx // self.num_augments
+        augment_idx = idx % self.num_augments
+
+        image_path = self.image_paths[original_idx]
+        label = self.labels[original_idx]
 
         # Load image
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
 
-        # Apply augmentations only in training mode
+        # Apply only one augmentation per instance (if training)
         if self.apply_augmentations:
-            augmented = albumentations_transform(image=image)
+            augmented = self.augmentations[augment_idx](image=image)
             image = augmented["image"]
 
         # Convert image to PIL format (for PyTorch transforms)
@@ -81,7 +85,7 @@ class FreshnessDataset(Dataset):
 
 
 # Prepare dataset
-image_directory = "../../data/Dataset/Banana"
+image_directory = "../../data/Dataset/Vgg11/orange"
 image_paths = [
     os.path.join(image_directory, name) for name in df["image_name"].tolist()
 ]
@@ -97,7 +101,11 @@ val_image_paths, test_image_paths, val_labels, test_labels = train_test_split(
 
 # Create dataset instances
 train_dataset = FreshnessDataset(
-    train_image_paths, train_labels, transform=torch_transform, apply_augmentations=True
+    train_image_paths,
+    train_labels,
+    transform=torch_transform,
+    apply_augmentations=True,
+    num_augments=4,
 )
 val_dataset = FreshnessDataset(
     val_image_paths, val_labels, transform=torch_transform, apply_augmentations=False
@@ -107,9 +115,53 @@ test_dataset = FreshnessDataset(
 )
 
 # Create DataLoader instances
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+
+print(len(train_loader.dataset))
+print(len(val_loader.dataset))
+print(len(test_loader.dataset))
+
+
+# # Define directories to save images
+# save_dirs = {
+#     "train": "saved_images/train",
+#     "val": "saved_images/val",
+#     "test": "saved_images/test",
+# }
+
+# # Create directories if they don't exist
+# for dir_path in save_dirs.values():
+#     os.makedirs(dir_path, exist_ok=True)
+
+
+# # Function to save images from DataLoader
+# def save_images(dataloader, save_dir):
+#     index = 0  # Image index
+#     for images, labels in dataloader:
+#         for i in range(images.size(0)):  # Iterate through batch
+#             img = images[i].permute(1, 2, 0).cpu().numpy()  # Convert to NumPy
+#             img = img * np.array([0.229, 0.224, 0.225]) + np.array(
+#                 [0.485, 0.456, 0.406]
+#             )  # Unnormalize
+#             img = np.clip(img, 0, 1)  # Clip to valid range
+
+#             # Convert NumPy array back to PIL image
+#             pil_img = Image.fromarray((img * 255).astype("uint8"))
+
+#             # Save the image
+#             img_path = os.path.join(save_dir, f"image_{index}.png")
+#             pil_img.save(img_path)
+
+#             index += 1  # Increment index
+
+
+# # Save images from each DataLoader
+# save_images(train_loader, save_dirs["train"])
+# save_images(val_loader, save_dirs["val"])
+# save_images(test_loader, save_dirs["test"])
+
 
 # Load the VGG11 model
 vgg11 = models.vgg11(pretrained=True)
@@ -133,7 +185,7 @@ vgg11.classifier = nn.Sequential(
     nn.ReLU(),
     nn.Linear(296, 56),
     nn.ReLU(),
-    nn.Linear(56, 1),  # Single output for regression (freshness grade)
+    nn.Linear(56, 1),
 )
 
 # Define the loss function and optimizer
@@ -149,7 +201,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 vgg11 = vgg11.to(device)
 
 # Training loop with validation
-num_epochs = 30
+num_epochs = 8
 train_losses, val_losses = [], []
 
 for epoch in range(num_epochs):
@@ -212,7 +264,7 @@ avg_test_loss = test_loss / len(test_loader)
 print(f"Test Loss: {avg_test_loss:.4f}")
 
 # Save the trained model
-torch.save(vgg11.state_dict(), "Banana_vgg11_freshness_model.pth")
+torch.save(vgg11.state_dict(), "orange_vgg11_freshness_model.pth")
 
 # Plot Training & Validation Loss
 plt.figure(figsize=(8, 6))
@@ -223,4 +275,5 @@ plt.ylabel("Loss (MSE)")
 plt.title("Training & Validation Loss Curve")
 plt.legend()
 plt.grid()
+plt.savefig("orange_training_loss.png")
 plt.show()

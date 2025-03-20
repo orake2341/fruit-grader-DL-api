@@ -6,16 +6,14 @@ import os
 model = YOLO("../../models/yolo11x.pt")
 
 # Define paths
-input_folder = "../../data/newdataset/augbanana"  # Input images folder
-output_folder = "../../data/newdataset/New folder"  # Output labels folder
-no_banana_folder = (
-    "../../data/newdataset/no"  # Folder to save images with no detected bananas
-)
+input_folder = "../../data/orangeall"  # Input images folder
+output_folder = "../../data/orangeallano"  # Output labels folder
+no_banana_folder = "../../data/no"  # Folder to save images with no detected bananas
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(no_banana_folder, exist_ok=True)
 
 # COCO class ID for banana (change if necessary)
-BANANA_CLASS_ID = 46
+BANANA_CLASS_ID = 49
 
 # Process each image
 for filename in os.listdir(input_folder):

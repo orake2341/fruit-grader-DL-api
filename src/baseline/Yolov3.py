@@ -11,11 +11,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 
 # COCO class index for banana
-BANANA_CLASS_ID = 0
+BANANA_CLASS_ID = 2
 
 # Input and output folders
-input_folder = "../../data/b3"
-output_folder = "../../data/ba3"
+input_folder = "../../data/orangeall"
+output_folder = "../../data/orangeallcropped"
 os.makedirs(output_folder, exist_ok=True)
 
 # Process all images in the folder

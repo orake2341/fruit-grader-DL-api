@@ -3,8 +3,8 @@ import os
 import re  # For extracting numbers from filenames
 
 # Define the input folder and output CSV file
-input_folder = "../../data/Dataset/valid"  # Replace with your actual folder path
-filename = "valid.csv"
+input_folder = "../../data/Dataset/Vgg11/orange"  # Replace with your actual folder path
+filename = "orange.csv"
 
 # Get all image filenames in the folder
 image_files = [
@@ -18,7 +18,7 @@ total_images = len(image_files)
 # Function to extract the number following "Banana" and calculate freshness grade
 def calculate_freshness(filename, total_images):
     # Extract the number after "Banana" in the filename
-    match = re.search(r"banana(\d+)", filename)
+    match = re.search(r"orange(\d+)", filename)
     if match:
         image_number = int(match.group(1))  # Get the matched number
         freshness_grade = 10 - (image_number - 1) * (10 / 350)

@@ -27,6 +27,6 @@ def update_class_label_in_folder(folder_path, old_class=0, new_class=1):
 
 # Example usage
 folder_path = (
-    "../../data/newdataset/augapplelabel"  # Change this to your actual folder path
+    "../../data/annotation/appleallano"  # Change this to your actual folder path
 )
 update_class_label_in_folder(folder_path)
