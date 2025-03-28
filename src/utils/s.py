@@ -1,7 +1,7 @@
 import os
 
 
-def update_class_label_in_folder(folder_path, old_class=0, new_class=1):
+def update_class_label_in_folder(folder_path, old_class=16, new_class=15):
     """Update class label in all YOLO annotation files inside a folder."""
     for filename in os.listdir(folder_path):
         if filename.endswith(".txt"):  # Process only .txt files
@@ -27,6 +27,6 @@ def update_class_label_in_folder(folder_path, old_class=0, new_class=1):
 
 # Example usage
 folder_path = (
-    "../../data/annotation/appleallano"  # Change this to your actual folder path
+    "../../data/Dataset/valid/labels"  # Change this to your actual folder path
 )
 update_class_label_in_folder(folder_path)

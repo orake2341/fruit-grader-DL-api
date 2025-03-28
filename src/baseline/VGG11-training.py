@@ -14,7 +14,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the CSV file
-df = pd.read_csv("../../data/Dataset/Vgg11/orange.csv")
+df = pd.read_csv("../../data/Dataset/Vgg11/banana.csv")
+image_directory = "../../data/Dataset/Vgg11/banana"
+
+# Correctly filter images from different videos
+video1_data = df[df["image_name"].str.contains(r"\(a\)", regex=True)]
+video2_data = df[df["image_name"].str.contains(r"\(b\)", regex=True)]
+video3_data = df[df["image_name"].str.contains(r"\(c\)", regex=True)]
+
+train_data = pd.concat([video1_data, video2_data])
+video3_selected = video3_data.sample(n=175, random_state=42)
+val_data, test_data = train_test_split(video3_selected, test_size=0.5, random_state=42)
+
 
 # Define standard PyTorch transforms (for normalization & tensor conversion)
 torch_transform = transforms.Compose(
@@ -34,7 +45,7 @@ class FreshnessDataset(Dataset):
         labels,
         transform=None,
         apply_augmentations=False,
-        num_augments=4,
+        num_augments=6,
     ):
         self.image_paths = image_paths
         self.labels = labels
@@ -46,11 +57,15 @@ class FreshnessDataset(Dataset):
         self.augmentations = [
             A.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1),
             A.CoarseDropout(
-                num_holes_range=(1, 10),
+                num_holes_range=(5, 10),
                 hole_height_range=(50, 50),
                 hole_width_range=(50, 50),
                 p=1,
             ),
+            A.HueSaturationValue(
+                hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1
+            ),
+            A.GaussianBlur(blur_limit=(3, 5), p=1),
             A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1),
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1),
         ]
@@ -85,27 +100,34 @@ class FreshnessDataset(Dataset):
 
 
 # Prepare dataset
-image_directory = "../../data/Dataset/Vgg11/orange"
+
 image_paths = [
     os.path.join(image_directory, name) for name in df["image_name"].tolist()
 ]
-labels = df["grading"].tolist()
 
-# Split dataset into training, validation, and test
-train_image_paths, temp_image_paths, train_labels, temp_labels = train_test_split(
-    image_paths, labels, test_size=0.3, random_state=42
-)
-val_image_paths, test_image_paths, val_labels, test_labels = train_test_split(
-    temp_image_paths, temp_labels, test_size=0.5, random_state=42
-)
 
+train_image_paths = [
+    os.path.join(image_directory, name) for name in train_data["image_name"]
+]
+val_image_paths = [
+    os.path.join(image_directory, name) for name in val_data["image_name"]
+]
+test_image_paths = [
+    os.path.join(image_directory, name) for name in test_data["image_name"]
+]
+
+train_labels = train_data["grading"].tolist()
+val_labels = val_data["grading"].tolist()
+test_labels = test_data["grading"].tolist()
+
+print(df.head())
 # Create dataset instances
 train_dataset = FreshnessDataset(
     train_image_paths,
     train_labels,
     transform=torch_transform,
     apply_augmentations=True,
-    num_augments=4,
+    num_augments=6,
 )
 val_dataset = FreshnessDataset(
     val_image_paths, val_labels, transform=torch_transform, apply_augmentations=False
@@ -183,6 +205,7 @@ vgg11.classifier = nn.Sequential(
     nn.Dropout(0.3),
     nn.Linear(1096, 296),
     nn.ReLU(),
+    nn.Dropout(0.2),
     nn.Linear(296, 56),
     nn.ReLU(),
     nn.Linear(56, 1),
@@ -190,18 +213,14 @@ vgg11.classifier = nn.Sequential(
 
 # Define the loss function and optimizer
 criterion = nn.MSELoss()  # Mean Squared Error for regression
-optimizer = torch.optim.Adam(vgg11.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(vgg11.parameters(), lr=0.00001, weight_decay=5e-4)
 
-
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=30, eta_min=1e-6
-)
 # Move model to GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 vgg11 = vgg11.to(device)
 
 # Training loop with validation
-num_epochs = 8
+num_epochs = 15
 train_losses, val_losses = [], []
 
 for epoch in range(num_epochs):
@@ -213,7 +232,7 @@ for epoch in range(num_epochs):
 
         # Forward pass
         outputs = vgg11(images).squeeze()
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs, labels.view(-1))
 
         # Backward pass
         optimizer.zero_grad()
@@ -221,8 +240,6 @@ for epoch in range(num_epochs):
         optimizer.step()
 
         train_loss += loss.item()
-
-    scheduler.step()
 
     # Validation phase
     vgg11.eval()
@@ -264,7 +281,7 @@ avg_test_loss = test_loss / len(test_loader)
 print(f"Test Loss: {avg_test_loss:.4f}")
 
 # Save the trained model
-torch.save(vgg11.state_dict(), "orange_vgg11_freshness_model.pth")
+torch.save(vgg11.state_dict(), "banana_vgg11_freshness_model.pth")
 
 # Plot Training & Validation Loss
 plt.figure(figsize=(8, 6))
@@ -275,5 +292,5 @@ plt.ylabel("Loss (MSE)")
 plt.title("Training & Validation Loss Curve")
 plt.legend()
 plt.grid()
-plt.savefig("orange_training_loss.png")
+plt.savefig("banana_training_loss.png")
 plt.show()

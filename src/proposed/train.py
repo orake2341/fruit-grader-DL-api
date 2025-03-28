@@ -54,7 +54,7 @@ class FruitFreshnessDataset(Dataset):
         freshness_labels,
         transform=None,
         apply_augmentations=False,
-        num_augments=4,
+        num_augments=6,
     ):
         self.image_paths = image_paths
         self.fruit_labels = [fruit_label_mapping[label] for label in fruit_labels]
@@ -71,6 +71,10 @@ class FruitFreshnessDataset(Dataset):
                 hole_width_range=(50, 50),
                 p=1,
             ),
+            A.HueSaturationValue(
+                hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=10, p=1
+            ),
+            A.GaussianBlur(blur_limit=(3, 5), p=1),
             A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1),
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1),
         ]
@@ -137,7 +141,7 @@ train_dataset = FruitFreshnessDataset(
     train_fresh,
     transform=torch_transform,
     apply_augmentations=True,
-    num_augments=4,
+    num_augments=6,
 )
 val_dataset = FruitFreshnessDataset(
     val_img, val_fruit, val_fresh, transform=torch_transform, apply_augmentations=False
@@ -268,7 +272,7 @@ for epoch in range(num_epochs):
 model.eval()
 test_class_loss, test_reg_loss = 0.0, 0.0
 all_fruit_preds, all_fruit_labels = [], []
-all_freshness_preds, all_freshness_labels = [], []
+
 
 with torch.no_grad():
     for images, fruit_labels, freshness_labels in test_loader:
@@ -286,8 +290,7 @@ with torch.no_grad():
         # Store predictions and labels
         all_fruit_preds.extend(torch.argmax(fruit_preds, dim=1).cpu().numpy())
         all_fruit_labels.extend(fruit_labels.cpu().numpy())
-        all_freshness_preds.extend(freshness_preds.squeeze().cpu().numpy())
-        all_freshness_labels.extend(freshness_labels.cpu().numpy())
+
 
 accuracy = accuracy_score(all_fruit_labels, all_fruit_preds)
 precision = precision_score(all_fruit_labels, all_fruit_preds, average="macro")
