@@ -6,7 +6,7 @@ import pandas as pd
 
 # Define paths to label folders
 LABELS_PATHS = {
-    "Valid": "../../data/Dataset/valid/labels",
+    "Train": "../../data/Dataset/train/labels",
 }
 
 # Initialize dictionary to store class counts
@@ -23,22 +23,12 @@ for path in LABELS_PATHS.values():
 
 # Optional: Define class names if you have classes.txt
 CLASS_NAMES = [
-    "fresh apple",
-    "fresh banana",
-    "fresh bellpepper",
-    "fresh carrot",
-    "fresh cucumber",
-    "fresh mango",
-    "fresh orange",
-    "fresh potato",
-    "rotten apple",
-    "rotten banana",
-    "rotten carrot",
-    "rotten cucumber",
-    "rotten mango",
-    "rotten orange",
-    "rotten potato",
-    "rottenbellpepper",
+    "freshapples",
+    "freshbanana",
+    "freshoranges",
+    "rottenapples",
+    "rottenbanana",
+    "rottenoranges",
 ]
 
 # Create DataFrame for plotting
