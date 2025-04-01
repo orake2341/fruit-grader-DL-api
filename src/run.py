@@ -117,7 +117,7 @@ CORS(app)
 
 
 def get_yolo_preds(img_path):
-    model = YOLO("../models/best.pt")
+    model = YOLO("../models/yolov5.pt")
     results = model(img_path)[0]
     image = cv2.imread(img_path)
     detected_fruits = []
@@ -127,22 +127,12 @@ def get_yolo_preds(img_path):
         class_id = int(box.cls[0])
         label = model.names[class_id]
         if label.lower() in [
-            "fresh apple",
-            "fresh banana",
-            "fresh bellpepper",
-            "fresh carrot",
-            "fresh cucumber",
-            "fresh mango",
-            "fresh orange",
-            "fresh potato",
-            "rotten apple",
-            "rotten banana",
-            "rotten carrot",
-            "rotten cucumber",
-            "rotten mango",
-            "rotten orange",
-            "rotten potato",
-            "rottenbellpepper",
+            "freshapples",
+            "freshbanana",
+            "freshoranges",
+            "rottenapples",
+            "rottenbanana",
+            "rottenoranges",
         ]:
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(

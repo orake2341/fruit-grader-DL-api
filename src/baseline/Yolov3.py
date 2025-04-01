@@ -3,20 +3,32 @@ import torch
 import os
 from ultralytics import YOLO
 
-# Load YOLOv8 model (or change to 'yolov3.pt' if using YOLOv3)
-model = YOLO("../../models/best.pt")
+# Load YOLOv8 model
+model = YOLO("../../models/yolov5.pt")
 
 # Set device to GPU if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 
-# COCO class index for banana
-BANANA_CLASS_ID = 2
+# Define class names
+CLASS_NAMES = [
+    "freshapples",
+    "freshbanana",
+    "freshoranges",
+    "rottenapples",
+    "rottenbanana",
+    "rottenoranges",
+]
 
 # Input and output folders
-input_folder = "../../data/orangeall"
-output_folder = "../../data/orangeallcropped"
+input_folder = "../../data/Dataset/train/images"
+output_folder = "../../data/VGG16/train"
 os.makedirs(output_folder, exist_ok=True)
+
+# Ensure class-specific directories exist
+for class_name in CLASS_NAMES:
+    class_folder = os.path.join(output_folder, class_name)
+    os.makedirs(class_folder, exist_ok=True)
 
 # Process all images in the folder
 for filename in os.listdir(input_folder):
@@ -30,16 +42,19 @@ for filename in os.listdir(input_folder):
         # Loop through detections
         for i, r in enumerate(results):
             for j, (box, cls) in enumerate(zip(r.boxes.xyxy, r.boxes.cls)):
-                if int(cls) == BANANA_CLASS_ID:  # Filter only bananas
+                class_id = int(cls)
+                if 0 <= class_id < len(CLASS_NAMES):  # Ensure valid class ID
                     x1, y1, x2, y2 = map(int, box)
 
-                    # Crop the banana
+                    # Crop the detected object
                     cropped = img[y1:y2, x1:x2]
 
-                    # Save cropped banana image
-                    crop_filename = f"{os.path.splitext(filename)[0]}_cropped.png"
-                    crop_path = os.path.join(output_folder, crop_filename)
+                    # Save cropped image to class-specific folder
+                    class_name = CLASS_NAMES[class_id]
+                    class_folder = os.path.join(output_folder, class_name)
+                    crop_filename = f"{os.path.splitext(filename)[0]}_{j}.png"
+                    crop_path = os.path.join(class_folder, crop_filename)
                     cv2.imwrite(crop_path, cropped)
                     print(f"Saved: {crop_path}")
 
-print("Apple detection and cropping complete.")
+print("Object detection and cropping complete.")
