@@ -13,6 +13,7 @@ import base64
 from io import BytesIO
 from ultralytics import YOLO
 from efficientnet_pytorch import EfficientNet
+import torch.nn.functional as F
 
 app = Flask(__name__)
 CORS(app)
@@ -116,6 +117,62 @@ CORS(app)
 #     return labels[label_idx], freshness_score
 
 
+# Load trained VGG16 model
+class VGG16Classifier(nn.Module):
+    def __init__(self, num_classes):
+        super(VGG16Classifier, self).__init__()
+        self.vgg16 = models.vgg16(pretrained=False)
+        self.vgg16.classifier[6] = nn.Linear(4096, num_classes)
+
+    def forward(self, x):
+        return self.vgg16(x)
+
+
+# Load model and set to evaluation mode
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+num_classes = 6
+vgg16_model = VGG16Classifier(num_classes).to(device)
+vgg16_model.load_state_dict(
+    torch.load("../models/VGG16_Fruit_Classifier.pth", map_location=device)
+)
+vgg16_model.eval()
+
+# Define image transformation
+transform = transforms.Compose(
+    [
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ]
+)
+
+# Load YOLO model
+yolo_model = YOLO("../models/yolov5.pt")
+
+CLASS_LABELS = [
+    "freshapples",
+    "freshbanana",
+    "freshoranges",
+    "rottenapples",
+    "rottenbanana",
+    "rottenoranges",
+]
+
+
+def predict_vgg16(img_path):
+    image = Image.open(img_path).convert("RGB")
+    input_tensor = transform(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        outputs = vgg16_model(input_tensor)
+    probabilities = F.softmax(outputs, dim=1)
+    class_idx = torch.argmax(probabilities).item()
+    class_confidence = probabilities[
+        0, class_idx
+    ].item()  # Get the confidence of the predicted class
+    class_name = CLASS_LABELS[class_idx]
+    return class_name, class_confidence
+
+
 def get_yolo_preds(img_path):
     model = YOLO("../models/yolov5.pt")
     results = model(img_path)[0]
@@ -144,33 +201,20 @@ def get_yolo_preds(img_path):
                 (0, 255, 0),
                 2,
             )
-            # cropped_fruit = image[y1:y2, x1:x2]
-            # with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_img:
-            #     cropped_fruit_path = temp_img.name
-            #     cv2.imwrite(cropped_fruit_path, cropped_fruit)
+            cropped_fruit = image[y1:y2, x1:x2]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_img:
+                cropped_fruit_path = temp_img.name
+                cv2.imwrite(cropped_fruit_path, cropped_fruit)
 
-            # # vgg_grade = predict_vgg11(cropped_fruit_path, label.lower())
-            # # eff_label, eff_grade = predict_efficientnet(cropped_fruit_path)
-            # cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            # cv2.putText(
-            #     image,
-            #     f"{label}: VGG={vgg_grade:.2f}, Eff={eff_grade:.2f}",
-            #     (x1, y1 - 10),
-            #     cv2.FONT_HERSHEY_SIMPLEX,
-            #     0.5,
-            #     (0, 255, 0),
-            #     2,
-            # )
-            # print(f"VGG Grade for {label}: {vgg_grade}")
-            # print(f"EfficientNet Label: {eff_label}, Grade: {eff_grade}")
+            vgg_class, vgg_confidence = predict_vgg16(cropped_fruit_path)
+            os.remove(cropped_fruit_path)
 
             detected_fruits.append(
                 {
                     "yolo_label": label,
-                    "confidence": confidence,
-                    # "vgg_grade": vgg_grade,
-                    # "efficientnet_label": eff_label,
-                    # "efficientnet_grade": eff_grade,
+                    "yolo_confidence": confidence,
+                    "vgg_class": vgg_class,
+                    "vgg_confidence": vgg_confidence,
                 }
             )
     _, buffer = cv2.imencode(".jpg", image)

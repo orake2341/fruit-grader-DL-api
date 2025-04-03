@@ -5,6 +5,7 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
+import matplotlib.pyplot as plt
 
 # Define device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -55,6 +56,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
 
 # Training loop
 num_epochs = 8
+train_losses, valid_losses, train_accuracies, valid_accuracies = [], [], [], []
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -74,6 +76,8 @@ for epoch in range(num_epochs):
 
     train_loss = running_loss / len(train_loader)
     train_acc = 100.0 * correct / total
+    train_losses.append(train_loss)
+    train_accuracies.append(train_acc)
 
     # Validation phase
     model.eval()
@@ -90,10 +94,38 @@ for epoch in range(num_epochs):
 
     valid_loss /= len(valid_loader)
     valid_acc = 100.0 * correct_valid / total_valid
+    valid_losses.append(valid_loss)
+    valid_accuracies.append(valid_acc)
 
     print(
         f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, Valid Loss: {valid_loss:.4f}, Valid Acc: {valid_acc:.2f}%"
     )
+
+# Plot Loss and Accuracy
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(range(1, num_epochs + 1), train_losses, label="Train Loss", marker="o")
+plt.plot(range(1, num_epochs + 1), valid_losses, label="Validation Loss", marker="o")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("Training and Validation Loss")
+plt.legend()
+plt.grid()
+
+plt.subplot(1, 2, 2)
+plt.plot(range(1, num_epochs + 1), train_accuracies, label="Train Accuracy", marker="o")
+plt.plot(
+    range(1, num_epochs + 1), valid_accuracies, label="Validation Accuracy", marker="o"
+)
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy (%)")
+plt.title("Training and Validation Accuracy")
+plt.legend()
+plt.grid()
+
+plt.tight_layout()
+plt.savefig("training_plot.png")
+plt.show()
 
 # Testing phase
 model.eval()
