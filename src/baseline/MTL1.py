@@ -48,6 +48,9 @@ os.environ["KERAS_BACKEND"] = "torch"  # switch to torch backend
 
 
 torch.cuda.is_available()
+print("CUDA Available:", torch.cuda.is_available())
+print("Current device:", torch.cuda.current_device())
+print("Device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
 
 DATA_PATH = "../../data/Dataset"
 PICKLE_FILE = "../../data/fruit_mtl_data.pkl"
@@ -182,6 +185,7 @@ def split_data(test_size=0.3, seed=None):
         horizontal_flip=True,
         fill_mode="nearest",
     )
+
     datagen.fit(X_train)
 
     # Initialize lists for augmented data
