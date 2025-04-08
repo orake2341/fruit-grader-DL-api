@@ -1,58 +1,52 @@
-import pandas as pd
 import os
 import shutil
 from sklearn.model_selection import train_test_split
+from pathlib import Path
 
-# Load dataset CSV
-df = pd.read_csv("../../data/appleall/apple_freshness.csv")
-
-# Define source image folder (where original images are stored)
-image_folder = "../../data/ap"
-
-# Create dataset folders for train and validation
-output_folder = "../../data/Dataset"
-train_folder = os.path.join(output_folder, "train")
-val_folder = os.path.join(output_folder, "val")
-
-os.makedirs(train_folder, exist_ok=True)
-os.makedirs(val_folder, exist_ok=True)
-
-# We don't need binning for regression - keep the grading as a continuous float
-# The grading values are used directly as the regression target
-
-# Split dataset into 90% train and 10% validation (no stratification needed for regression)
-train_df, val_df = train_test_split(df, test_size=0.1, random_state=42)
-
-# Save train and validation CSV files
-train_csv = os.path.join(output_folder, "train_split.csv")
-val_csv = os.path.join(output_folder, "val_split.csv")
-train_df.to_csv(train_csv, index=False)
-val_df.to_csv(val_csv, index=False)
+# Main function to split and organize dataset with class subdirectories
 
 
-# Function to move images to respective folders
-def move_images(df, destination_folder):
-    for _, row in df.iterrows():
-        filename = row["image_name"]
-        src_path = os.path.join(image_folder, filename)
-        dest_path = os.path.join(destination_folder, filename)
+def organize_dataset(image_folder, output_folder):
+    image_paths = list(
+        Path(image_folder).rglob("*.jpg")
+    )  # Recursively search all subfolders
+    image_classes = [
+        p.parent.name for p in image_paths
+    ]  # Class is derived from parent folder name
 
-        # Ensure the source image exists before moving
-        if os.path.exists(src_path):
-            shutil.move(src_path, dest_path)
-        else:
-            print(f"Warning: {filename} not found!")
+    if not image_paths:
+        raise ValueError(f"No .jpg images found in: {image_folder}")
+
+    # Split the dataset into train (80%), valid (10%), test (10%)
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        image_paths,
+        image_classes,
+        test_size=0.3,
+        stratify=image_classes,
+        random_state=42,
+    )
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=42
+    )
+
+    splits = {
+        "train": (X_train, y_train),
+        "valid": (X_val, y_val),
+        "test": (X_test, y_test),
+    }
+
+    for split_name, (paths, labels) in splits.items():
+        for path, label in zip(paths, labels):
+            class_folder = os.path.join(output_folder, split_name, label)
+            os.makedirs(class_folder, exist_ok=True)
+            dst_path = os.path.join(class_folder, path.name)
+            shutil.copy(str(path), dst_path)
+
+    print(
+        "✅ Dataset organized into train, valid, and test folders with class subdirectories."
+    )
 
 
-# Shuffle the data to ensure random distribution
-train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
-val_df = val_df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-# Move images to train and validation folders
-move_images(train_df, train_folder)
-move_images(val_df, val_folder)
-
-# Output the split results
-print(
-    f"Dataset split completed!\nTrain: {len(train_df)} samples\nValidation: {len(val_df)} samples"
+organize_dataset(
+    image_folder="../../data/Dataset", output_folder="../../data/newDataset"
 )

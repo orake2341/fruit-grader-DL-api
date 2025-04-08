@@ -1,2 +1,10 @@
 data/
 models/
+src/baseline/yolov5
+src/baseline/second
+src/baseline/first
+src/baseline/confusion_matrices
+src/baseline/asd
+src/baseline/base_mtl_run1.keras
+src/baseline/cbam_mtl_run1.keras
+src/baseline/efficientnet_mtl_run1.keras
