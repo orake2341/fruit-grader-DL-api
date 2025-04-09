@@ -33,7 +33,9 @@ from keras_core.layers import (
     Multiply,
     Add,
     Concatenate,
+    Lambda,
 )
+from keras import ops
 from keras_core import Input
 from keras_core.utils import to_categorical, plot_model
 import torch
@@ -320,16 +322,74 @@ def base_net():
     return base_model
 
 
-def efficientnetb3_net():
-    base_model = EfficientNetB3(
-        include_top=False,
-        input_shape=(100, 100, 3),
-        weights="imagenet",
-        pooling="avg",
-    )
+def channel_attention(input_feature, ratio=4):
+    channel = input_feature.shape[-1]
+
+    avg_pool = GlobalAveragePooling2D()(input_feature)
+    max_pool = GlobalMaxPooling2D()(input_feature)
+
+    shared_dense_1 = Dense(channel // ratio, activation="relu", use_bias=True)
+    shared_dense_2 = Dense(channel, use_bias=True)
+
+    avg_out = shared_dense_1(avg_pool)
+    avg_out = shared_dense_2(avg_out)
+
+    max_out = shared_dense_1(max_pool)
+    max_out = shared_dense_2(max_out)
+
+    cbam_feature = Add()([avg_out, max_out])
+    cbam_feature = Activation("sigmoid")(cbam_feature)
+    cbam_feature = Reshape((1, 1, channel))(cbam_feature)
+
+    return Multiply()([input_feature, cbam_feature])
+
+
+def spatial_attention(input_feature):
+    avg_pool = Lambda(lambda x: ops.mean(x, axis=3, keepdims=True))(input_feature)
+    max_pool = Lambda(lambda x: ops.max(x, axis=3, keepdims=True))(input_feature)
+    concat = Concatenate(axis=-1)([avg_pool, max_pool])
+    cbam_feature = Conv2D(
+        filters=1, kernel_size=7, strides=1, padding="same", activation="sigmoid"
+    )(concat)
+    return Multiply()([input_feature, cbam_feature])
+
+
+def cbam_block(input_feature, ratio=4):
+    feature = channel_attention(input_feature, ratio)
+    feature = spatial_attention(feature)
+    return feature
+
+
+def base_net_cbam():
     inputs = Input(shape=(100, 100, 3))
-    x = base_model(inputs, training=False)
-    x = Dropout(0.5)(x)  # Regularization
+
+    x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
+    x = cbam_block(x, 4)
+
+    x = SeparableConv2D(
+        K_NUM,
+        (3, 3),
+        padding="same",
+        depthwise_initializer="he_uniform",
+        pointwise_initializer="he_uniform",
+        activation="relu",
+    )(x)
+    x = cbam_block(x, 4)
+
+    x = SeparableConv2D(
+        K_NUM,
+        (3, 3),
+        padding="same",
+        depthwise_initializer="he_uniform",
+        pointwise_initializer="he_uniform",
+        activation="relu",
+    )(x)
+    x = cbam_block(x, 4)
+
+    x = MaxPooling2D((3, 3))(x)
+    x = Flatten()(x)
+    x = Dropout(0.5)(x)
+
     return Model(inputs, x)
 
 
@@ -492,7 +552,7 @@ es = keras.callbacks.EarlyStopping(monitor="val_loss", patience=4)
 
 
 architectures = {
-    "efficientnet": efficientnetb3_net,
+    "cbam": base_net_cbam,
     "base": base_net,
 }
 

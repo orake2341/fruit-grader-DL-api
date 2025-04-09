@@ -49,6 +49,7 @@ os.environ["KERAS_BACKEND"] = "torch"  # switch to torch backend
 
 torch.cuda.is_available()
 
+
 DATA_PATH = "../../data/Dataset"
 PICKLE_FILE = "../../data/fruit_mtl_data.pkl"
 
