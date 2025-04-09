@@ -24,7 +24,6 @@ img = cv2.resize(img, (100, 100))  # Resize if necessary for consistency
 
 # Add batch dimension (this is required for Keras' ImageDataGenerator)
 img = np.expand_dims(img, axis=0)  # Shape becomes (1, 100, 100, 3)
-
 # Create a folder to save the augmented images
 output_folder = "augmented_images"
 if not os.path.exists(output_folder):

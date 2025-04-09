@@ -179,17 +179,16 @@ def show_images(images, labels, n_images=5):
     fig, axes = plt.subplots(1, n_images, figsize=(15, 5))
     for i in range(n_images):
         ax = axes[i]
-        ax.imshow(images[i])
+        ax.imshow((images[i]))
         ax.axis("off")
         label = labels[i]
         ax.set_title(f"Label: {label}")
     plt.show()
 
 
-def augment_data(X_train, y_train, aug_cycles=6, batch_size=32, include_original=True):
+def augment_data(X_train, y_train, aug_cycles=5, batch_size=32):
     print("Starting augmentation...")
     datagen = ImageDataGenerator(
-        brightness_range=(0.7, 1.3),
         rotation_range=30,
         width_shift_range=0.2,
         height_shift_range=0.2,
@@ -197,28 +196,28 @@ def augment_data(X_train, y_train, aug_cycles=6, batch_size=32, include_original
         horizontal_flip=True,
         fill_mode="nearest",
     )
-
+    X_train = X_train.astype("float32")
     X_aug = []
     y_aug = []
-
-    if include_original:
-        X_aug.extend(X_train)
-        y_aug.extend(y_train)
-
+    print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
+    print(X_train.shape)
+    show_images(X_train, y_train, n_images=5)
     for cycle in range(aug_cycles):
         print(f"Augmentation cycle {cycle + 1}/{aug_cycles}")
         aug_iter = datagen.flow(
             X_train,
             y_train,
             batch_size=batch_size,
-            shuffle=False,
         )
 
         steps = int(np.ceil(len(X_train) / batch_size))
         for _ in range(steps):
             batch_images, label = next(aug_iter)
-            X_aug.extend(batch_images)
+            batch_images = np.clip(batch_images, 0.0, 1.0)  # Stay in range
+            X_aug.extend(batch_images.astype("float64"))
             y_aug.extend(label)
+
+    show_images(X_aug, y_aug, n_images=20)
 
     return np.array(X_aug), y_aug
 
@@ -231,6 +230,8 @@ def split_data(test_size=0.3, seed=None):
     X_train, X_val, y_train, y_val = train_test_split(
         X_train, y_train, test_size=0.3, stratify=y_train, random_state=seed
     )
+    print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
+    show_images(X_train, y_train, n_images=5)
 
     def split_labels(label_comb):
         y1 = []  # Freshness
@@ -245,12 +246,16 @@ def split_data(test_size=0.3, seed=None):
         return np.array(y1), np.array(y2)
 
     X_train_aug, y_train_aug = augment_data(
-        X_train, y_train, aug_cycles=6, batch_size=32
+        X_train, y_train, aug_cycles=5, batch_size=32
     )
     print(f"X_train:{len(X_train)}")
     print(f"y_train:{len(y_train)}")
-    show_images(X_train_aug, y_train_aug, n_images=5)
-
+    show_images(X_train_aug, y_train_aug, n_images=20)
+    print(
+        f"X_train dtype: {X_train_aug.dtype}, min: {X_train_aug.min()}, max: {X_train_aug.max()}"
+    )
+    print(f"X_train dtype: {X_val.dtype}, min: {X_val.min()}, max: {X_val.max()}")
+    print(f"X_train dtype: {X_test.dtype}, min: {X_test.min()}, max: {X_test.max()}")
     y_train_aug_t1, y_train_aug_t2 = split_labels(y_train_aug)
     y_val_t1, y_val_t2 = split_labels(y_val)
     y_test_t1, y_test_t2 = split_labels(y_test)
