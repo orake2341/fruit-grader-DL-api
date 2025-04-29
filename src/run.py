@@ -2,9 +2,14 @@ import os
 import tempfile
 import numpy as np
 import cv2
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from keras_core.models import load_model
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 app = Flask(__name__)
 CORS(app)
@@ -12,17 +17,13 @@ CORS(app)
 # Load both models
 base_model = load_model("../models/base_mtl_run1.keras")
 cbam_model = load_model("../models/cbam_mtl_run1.keras")
-
 # Fruit class labels
 classes = [
     "Apple",
     "Banana",
     "Grape",
-    "Guava",
-    "Jujube",
+    "Mango",
     "Orange",
-    "Pomegranate",
-    "Strawberry",
 ]
 
 fresh = ["Fresh", "Rotten"]
@@ -33,7 +34,8 @@ def preprocess_image(image_path):
     img = cv2.resize(img, (100, 100))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img / 255.0
-    return np.expand_dims(img, axis=0)
+    img = np.asarray(img, dtype=np.float64)
+    return np.expand_dims(img, axis=0), img
 
 
 def predict_with_model(model, image_array):
@@ -70,11 +72,13 @@ def predict():
         image_file.save(image_path)
 
     try:
-        img_array = preprocess_image(image_path)
-
+        img_array, original_img = preprocess_image(image_path)
+        print(original_img.shape)
+        print(f"Original image dtype: {original_img.dtype}")
+        print(f"Image min value: {original_img.min()}")
+        print(f"Image max value: {original_img.max()}")
         base_predictions = predict_with_model(base_model, img_array)
         cbam_predictions = predict_with_model(cbam_model, img_array)
-
         results = {
             "base_net_prediction": base_predictions,
             "cbam_net_prediction": cbam_predictions,

@@ -8,3 +8,5 @@ src/baseline/asd
 src/baseline/base_mtl_run1.keras
 src/baseline/cbam_mtl_run1.keras
 src/baseline/efficientnet_mtl_run1.keras
+src/baseline/CBAMvsBASE
+src/baseline/results

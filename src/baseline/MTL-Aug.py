@@ -35,7 +35,7 @@ from keras_core.layers import (
     Concatenate,
     Lambda,
 )
-from keras import ops
+from keras_core import ops
 from keras_core import Input
 from keras_core.utils import to_categorical, plot_model
 import torch
@@ -47,7 +47,11 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import time
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from keras_core.applications import EfficientNetB3
+import keras_core
+from keras_core import Layer
+from keras_core.saving import register_keras_serializable
 
+keras_core.config.enable_unsafe_deserialization()
 # switch to torch backend
 
 
@@ -327,48 +331,93 @@ def base_net():
     return base_model
 
 
-def channel_attention(input_feature, ratio=4):
-    channel = input_feature.shape[-1]
+# def channel_attention(input_feature, ratio=4):
+#     channel = input_feature.shape[-1]
 
-    avg_pool = GlobalAveragePooling2D()(input_feature)
-    max_pool = GlobalMaxPooling2D()(input_feature)
+#     avg_pool = GlobalAveragePooling2D()(input_feature)
+#     max_pool = GlobalMaxPooling2D()(input_feature)
 
-    shared_dense_1 = Dense(channel // ratio, activation="relu", use_bias=True)
-    shared_dense_2 = Dense(channel, use_bias=True)
+#     shared_dense_1 = Dense(channel // ratio, activation="relu", use_bias=True)
+#     shared_dense_2 = Dense(channel, use_bias=True)
 
-    avg_out = shared_dense_1(avg_pool)
-    avg_out = shared_dense_2(avg_out)
+#     avg_out = shared_dense_1(avg_pool)
+#     avg_out = shared_dense_2(avg_out)
 
-    max_out = shared_dense_1(max_pool)
-    max_out = shared_dense_2(max_out)
+#     max_out = shared_dense_1(max_pool)
+#     max_out = shared_dense_2(max_out)
 
-    cbam_feature = Add()([avg_out, max_out])
-    cbam_feature = Activation("sigmoid")(cbam_feature)
-    cbam_feature = Reshape((1, 1, channel))(cbam_feature)
+#     cbam_feature = Add()([avg_out, max_out])
+#     cbam_feature = Activation("sigmoid")(cbam_feature)
+#     cbam_feature = Reshape((1, 1, channel))(cbam_feature)
 
-    return Multiply()([input_feature, cbam_feature])
-
-
-def spatial_attention(input_feature):
-    avg_pool = Lambda(lambda x: ops.mean(x, axis=3, keepdims=True))(input_feature)
-    max_pool = Lambda(lambda x: ops.max(x, axis=3, keepdims=True))(input_feature)
-    concat = Concatenate(axis=-1)([avg_pool, max_pool])
-    cbam_feature = Conv2D(
-        filters=1, kernel_size=7, strides=1, padding="same", activation="sigmoid"
-    )(concat)
-    return Multiply()([input_feature, cbam_feature])
+#     return Multiply()([input_feature, cbam_feature])
 
 
-def cbam_block(input_feature, ratio=4):
-    feature = channel_attention(input_feature, ratio)
-    feature = spatial_attention(feature)
-    return feature
+# def spatial_attention(input_feature):
+#     avg_pool = ops.mean(input_feature, axis=3, keepdims=True)
+#     max_pool = ops.max(input_feature, axis=3, keepdims=True)
+
+#     concat = Concatenate(axis=-1)([avg_pool, max_pool])
+#     cbam_feature = Conv2D(
+#         filters=1, kernel_size=7, strides=1, padding="same", activation="sigmoid"
+#     )(concat)
+#     return Multiply()([input_feature, cbam_feature])
+
+
+# def cbam_block(input_feature, ratio=4):
+#     feature = channel_attention(input_feature, ratio)
+#     feature = spatial_attention(feature)
+#     return feature
+
+
+@register_keras_serializable()
+class CBAMBlock(Layer):
+    def __init__(self, ratio=4, **kwargs):
+        super().__init__(**kwargs)
+        self.ratio = ratio
+
+    def build(self, input_shape):
+        self.channel = input_shape[-1]
+
+        # Channel attention layers
+        self.shared_dense_1 = Dense(
+            self.channel // self.ratio, activation="relu", use_bias=True
+        )
+        self.shared_dense_2 = Dense(self.channel, use_bias=True)
+        self.reshape = Reshape((1, 1, self.channel))
+
+        # Spatial attention layers
+        self.concat = Concatenate(axis=-1)
+        self.conv2d = Conv2D(
+            filters=1, kernel_size=7, strides=1, padding="same", activation="sigmoid"
+        )
+
+    def call(self, input_feature):
+        # Channel attention
+        avg_pool = GlobalAveragePooling2D()(input_feature)
+        max_pool = GlobalMaxPooling2D()(input_feature)
+
+        avg_out = self.shared_dense_2(self.shared_dense_1(avg_pool))
+        max_out = self.shared_dense_2(self.shared_dense_1(max_pool))
+        cbam_feature = Activation("sigmoid")(Add()([avg_out, max_out]))
+        cbam_feature = self.reshape(cbam_feature)
+        channel_refined = Multiply()([input_feature, cbam_feature])
+
+        # Spatial attention
+        avg_pool = ops.mean(channel_refined, axis=3, keepdims=True)
+        max_pool = ops.max(channel_refined, axis=3, keepdims=True)
+        concat = self.concat([avg_pool, max_pool])
+        cbam_feature = self.conv2d(concat)
+        refined_feature = Multiply()([channel_refined, cbam_feature])
+
+        return refined_feature
 
 
 def base_net_cbam():
     inputs = Input(shape=(100, 100, 3))
 
     x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
+    x = CBAMBlock(ratio=4)(x)
 
     x = SeparableConv2D(
         K_NUM,
@@ -378,7 +427,7 @@ def base_net_cbam():
         pointwise_initializer="he_uniform",
         activation="relu",
     )(x)
-    x = cbam_block(x, 4)
+    x = CBAMBlock(ratio=4)(x)
 
     x = SeparableConv2D(
         K_NUM,
@@ -388,12 +437,68 @@ def base_net_cbam():
         pointwise_initializer="he_uniform",
         activation="relu",
     )(x)
-    x = cbam_block(x, 4)
+    x = CBAMBlock(name="cbam_block_3")(x)
 
     x = MaxPooling2D((3, 3))(x)
     x = Flatten()(x)
 
     return Model(inputs, x)
+
+
+def show_feature_maps(model, X_test, layer_name, n_images=5):
+    try:
+        # Try getting "sequential" first
+        backbone_layer = model.get_layer("sequential")
+    except ValueError:
+        # If not found, fall back to "functional"
+        backbone_layer = model.get_layer("functional_15")
+
+    # Step 2: Create a model up to the target layer inside sequential
+    inputs = keras_core.Input(shape=model.input_shape[1:])  # fresh input
+    x = inputs
+
+    def apply_layers(layers, x, target_layer_name):
+        for layer in layers:
+            # Always pass training=False
+            try:
+                x_out = layer(x, training=False)
+            except Exception as e:
+                print(f"Skipping layer {layer.name} due to error: {e}")
+                x_out = x  # if layer fails, just continue
+
+            if layer.name == target_layer_name:
+                return x_out, True  # found target layer
+
+            # If layer is a model (like CBAM), go deeper
+            if isinstance(layer, Model):
+                x_out, found = apply_layers(layer.layers, x_out, target_layer_name)
+                if found:
+                    return x_out, True
+
+            x = x_out  # update x to continue
+        return x, False  # not found
+
+    # Apply layers until target layer
+    x, _ = apply_layers(backbone_layer.layers, x, layer_name)
+
+    feature_model = Model(inputs=inputs, outputs=x)  # build small feature map model
+    print(feature_model.summary(expand_nested=True))
+
+    # Step 3: Predict
+    feature_maps = feature_model.predict(X_test[:n_images])
+
+    # Step 4: Plot
+    for i in range(n_images):
+        plt.figure(figsize=(15, 15))
+        n_features = feature_maps.shape[-1]
+        size = int(np.ceil(np.sqrt(n_features)))
+
+        for j in range(n_features):
+            plt.subplot(size, size, j + 1)
+            plt.imshow(feature_maps[i, :, :, j], cmap="viridis")
+            plt.axis("off")
+
+        plt.show()
 
 
 def draw_training_curve(history, title=""):
@@ -418,9 +523,9 @@ def draw_training_curve(history, title=""):
     plt.show()
 
 
-def draw_training_curve_MTL(history):
+def draw_training_curve_MTL(history, architecture=None):
     plt.figure(1, figsize=(20, 8))
-    # plt.title('MTL')
+    filename = f"{architecture}_training_curve_MTL.png"
     plt.subplot(1, 3, 1)
     plt.xlabel("Epochs")
     plt.ylabel("Total Loss")
@@ -444,6 +549,9 @@ def draw_training_curve_MTL(history):
     plt.plot(history.history["val_cat_accuracy"], label="Validation Accuracy")
     plt.grid(True)
     plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(filename)  # Save the plot to file
     plt.show()
 
 
@@ -555,8 +663,8 @@ es = keras.callbacks.EarlyStopping(monitor="val_loss", patience=4)
 
 
 architectures = {
-    "cbam": base_net_cbam,
     "base": base_net,
+    "cbam": base_net_cbam,
 }
 
 arch_metrics = {
@@ -588,7 +696,6 @@ arch_metrics = {
 for i in tqdm(range(RUNS)):
     # Make sure the data split is the same for each architecture run
     display(HTML(f"<h1>RUN #{i + 1}</h1>"))
-    start_time = time.time()
 
     # Split the data once for this run
     (
@@ -607,7 +714,7 @@ for i in tqdm(range(RUNS)):
     # Run both architectures
     for arch_name, arch_fn in architectures.items():
         display(HTML(f"<h2>Training architecture: {arch_name.upper()}</h2>"))
-
+        start_time = time.time()
         # Prepare model
         inputs = Input(shape=(100, 100, 3))
         x = arch_fn()(inputs)
@@ -627,7 +734,7 @@ for i in tqdm(range(RUNS)):
                 "cat": "kl_divergence",
             },
             loss_weights={"fresh": 0.4, "cat": 0.6},
-            optimizer=keras.optimizers.Adam(learning_rate=0.001),
+            optimizer=keras.optimizers.Adam(learning_rate=0.0005),
             metrics=["accuracy", "accuracy"],
         )
 
@@ -648,14 +755,20 @@ for i in tqdm(range(RUNS)):
             batch_size=BATCH_SIZE,
             validation_data=(X_val, y_val_mtl),
             epochs=EPOCHS,
-            callbacks=[check_point],
+            callbacks=[check_point, lr_rate],
         )
 
         # Draw training curves
-        draw_training_curve_MTL(history)
+        draw_training_curve_MTL(history, architecture=arch_name)
 
         # Load the best model
         best_model = load_model(model_path)
+        if arch_name == "base":
+            layer_name = "separable_conv2d_1"
+        else:
+            layer_name = "separable_conv2d_3"
+        print(best_model.summary(expand_nested=True))
+        show_feature_maps(best_model, X_test, layer_name, n_images=5)
 
         # Evaluate Task 1 (Freshness)
         precision, recall, f1, accuracy = evaluate_t1(
