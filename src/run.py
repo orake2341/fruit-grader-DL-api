@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from io import BytesIO
+from layers import CBAMBlock
 
 app = Flask(__name__)
 CORS(app)

@@ -234,7 +234,7 @@ def split_data(test_size=0.3, seed=None):
     )
 
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train, y_train, test_size=0.3, stratify=y_train, random_state=seed
+        X_train, y_train, test_size=test_size, stratify=y_train, random_state=seed
     )
     print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
     show_images(X_train, y_train, n_images=5)
