@@ -112,8 +112,11 @@ def load_mtl_data(path=DATA_PATH):
         "Apple",
         "Banana",
         "Grape",
-        "Mango",
+        "Guava",
+        "Jujube",
         "Orange",
+        "Pomegranate",
+        "Strawberry",
     ]
     X, Y = [], []
     z = []
@@ -153,7 +156,7 @@ def load_mtl_data(path=DATA_PATH):
 
     for label in Y:
         label1.append(label[0])
-        label2.append(to_categorical(label[1], num_classes=5))
+        label2.append(to_categorical(label[1], num_classes=8))
 
     Y = [np.array(label1), np.array(label2)]
 
@@ -210,7 +213,7 @@ def split_data(test_size=0.3, seed=None):
             fresh = int(item[0])
             cat = int(item[1])
             y1.append(fresh)
-            one_hot = [0] * 5
+            one_hot = [0] * 8
             one_hot[cat] = 1
             y2.append(one_hot)
         return np.array(y1), np.array(y2)
@@ -369,7 +372,6 @@ def base_net_cbam():
 
     x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
     x = CBAMBlock(ratio=4)(x)
-
     x = SeparableConv2D(
         K_NUM,
         (3, 3),
@@ -379,7 +381,6 @@ def base_net_cbam():
         activation="relu",
     )(x)
     x = CBAMBlock(ratio=4)(x)
-
     x = SeparableConv2D(
         K_NUM,
         (3, 3),
@@ -388,9 +389,8 @@ def base_net_cbam():
         pointwise_initializer="he_uniform",
         activation="relu",
     )(x)
-    x = CBAMBlock(name="cbam_block_3")(x)
-
     x = MaxPooling2D((3, 3))(x)
+    x = CBAMBlock(ratio=4)(x)
     x = Flatten()(x)
 
     return Model(inputs, x)
@@ -576,8 +576,11 @@ def evaluate_t2(
                 "Apple",
                 "Banana",
                 "Grape",
-                "Mango",
+                "Guava",
+                "Jujube",
                 "Orange",
+                "Pomegranate",
+                "Strawberry",
             ],
         )
         disp.plot(xticks_rotation=45, cmap="Blues")
@@ -675,7 +678,7 @@ for i in tqdm(range(RUNS)):
         fresh_predict = Dense(1, activation="sigmoid", name="fresh")(fresh_output)
 
         cat_output = Dense(EMBEDDING_DIM, activation="relu")(x)
-        cat_predict = Dense(5, activation="softmax", name="cat")(cat_output)
+        cat_predict = Dense(8, activation="softmax", name="cat")(cat_output)
 
         model = Model(inputs=inputs, outputs=[fresh_predict, cat_predict])
 

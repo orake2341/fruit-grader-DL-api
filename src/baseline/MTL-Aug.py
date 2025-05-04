@@ -50,6 +50,7 @@ from keras_core.applications import EfficientNetB3
 import keras_core
 from keras_core import Layer
 from keras_core.saving import register_keras_serializable
+import albumentations as A
 
 keras_core.config.enable_unsafe_deserialization()
 # switch to torch backend
@@ -112,8 +113,11 @@ def load_mtl_data(path=DATA_PATH):
         "Apple",
         "Banana",
         "Grape",
-        "Mango",
+        "Guava",
+        "Jujube",
         "Orange",
+        "Pomegranate",
+        "Strawberry",
     ]
     X, Y = [], []
     z = []
@@ -153,7 +157,7 @@ def load_mtl_data(path=DATA_PATH):
 
     for label in Y:
         label1.append(label[0])
-        label2.append(to_categorical(label[1], num_classes=5))
+        label2.append(to_categorical(label[1], num_classes=8))
 
     Y = [np.array(label1), np.array(label2)]
 
@@ -192,49 +196,120 @@ def show_images(images, labels, n_images=5):
     plt.show()
 
 
-def augment_data(X_train, y_train, aug_cycles=5, batch_size=32):
-    print("Starting augmentation...")
-    datagen = ImageDataGenerator(
-        rotation_range=30,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        zoom_range=0.2,
-        horizontal_flip=True,
-        fill_mode="nearest",
-    )
-    X_train = X_train.astype("float32")
+# def augment_data(X_train, y_train, aug_cycles=5, batch_size=32):
+#     print("Starting augmentation...")
+#     datagen = ImageDataGenerator(
+#         rotation_range=30,
+#         width_shift_range=0.2,
+#         height_shift_range=0.2,
+#         zoom_range=0.2,
+#         horizontal_flip=True,
+#         fill_mode="nearest",
+#     )
+#     X_train = X_train.astype("float32")
+#     X_aug = []
+#     y_aug = []
+#     print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
+#     print(X_train.shape)
+#     show_images(X_train, y_train, n_images=5)
+#     for cycle in range(aug_cycles):
+#         print(f"Augmentation cycle {cycle + 1}/{aug_cycles}")
+#         aug_iter = datagen.flow(
+#             X_train,
+#             y_train,
+#             batch_size=batch_size,
+#         )
+
+#         steps = int(np.ceil(len(X_train) / batch_size))
+#         for _ in range(steps):
+#             batch_images, label = next(aug_iter)
+#             batch_images = np.clip(batch_images, 0.0, 1.0)  # Stay in range
+#             X_aug.extend(batch_images.astype("float64"))
+#             y_aug.extend(label)
+
+#     show_images(X_aug, y_aug, n_images=20)
+
+#     return np.array(X_aug), y_aug
+
+
+# def augment_data(X_train, y_train, aug_per_image=5):
+#     print("Starting augmentation with one type per image...")
+
+#     # Define individual augmentation generators
+#     augmentations = {
+#         "rotate": ImageDataGenerator(rotation_range=30),
+#         "width_shift": ImageDataGenerator(width_shift_range=0.2),
+#         "height_shift": ImageDataGenerator(height_shift_range=0.2),
+#         "zoom": ImageDataGenerator(zoom_range=0.2),
+#         "horizontal_flip": ImageDataGenerator(horizontal_flip=True),
+#     }
+
+#     X_aug = []
+#     y_aug = []
+
+#     X_train = X_train.astype("float32")
+
+#     for i in range(len(X_train)):
+#         img = X_train[i : i + 1]
+#         label = y_train[i]
+
+#         aug_keys = list(augmentations.keys())
+#         for j in range(aug_per_image):
+#             aug_key = aug_keys[j % len(aug_keys)]  # cycle through augmentation types
+#             aug_gen = augmentations[aug_key].flow(img, batch_size=1)
+#             aug_img = next(aug_gen)[0]
+#             X_aug.append(np.clip(aug_img, 0.0, 1.0))
+#             y_aug.append(label)
+
+#     return np.array(X_aug), np.array(y_aug)
+
+
+def augment_data(X_train, y_train):
+    print("Starting augmentation with one instance per augmentation type...")
+
+    # Define individual augmentations with Albumentations
+    augmentations = [
+        A.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1),
+        A.HorizontalFlip(p=1.0),
+        A.VerticalFlip(p=1.0),
+        A.HueSaturationValue(
+            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1
+        ),
+        A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1),
+        A.CoarseDropout(
+            num_holes_range=(5, 10),
+            hole_height_range=(20, 20),
+            hole_width_range=(20, 20),
+            p=1,
+        ),
+    ]
+
     X_aug = []
     y_aug = []
-    print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
-    print(X_train.shape)
-    show_images(X_train, y_train, n_images=5)
-    for cycle in range(aug_cycles):
-        print(f"Augmentation cycle {cycle + 1}/{aug_cycles}")
-        aug_iter = datagen.flow(
-            X_train,
-            y_train,
-            batch_size=batch_size,
-        )
 
-        steps = int(np.ceil(len(X_train) / batch_size))
-        for _ in range(steps):
-            batch_images, label = next(aug_iter)
-            batch_images = np.clip(batch_images, 0.0, 1.0)  # Stay in range
-            X_aug.extend(batch_images.astype("float64"))
-            y_aug.extend(label)
+    for i in range(len(X_train)):
+        img = X_train[i]
+        label = y_train[i]
 
-    show_images(X_aug, y_aug, n_images=20)
+        img = img.astype(np.float32)
+        img = np.clip(img, 0.0, 1.0)
+        # Apply each augmentation and generate an augmented image
+        for aug in augmentations:
+            augmented = aug(image=img)
+            aug_img = augmented["image"]
+            X_aug.append(np.clip(aug_img, 0.0, 1.0))  # Clip the values to [0, 1]
+            y_aug.append(label)
 
-    return np.array(X_aug), y_aug
+    return np.array(X_aug), np.array(y_aug)
 
 
 def split_data(test_size=0.3, seed=None):
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, label_all, test_size=test_size, stratify=label_all, random_state=seed
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X, label_all, test_size=0.30, stratify=label_all, random_state=seed
     )
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train, y_train, test_size=test_size, stratify=y_train, random_state=seed
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp, y_temp, test_size=0.50, stratify=y_temp, random_state=seed
     )
     print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
     show_images(X_train, y_train, n_images=5)
@@ -246,14 +321,15 @@ def split_data(test_size=0.3, seed=None):
             fresh = int(item[0])
             cat = int(item[1])
             y1.append(fresh)
-            one_hot = [0] * 5
+            one_hot = [0] * 8
             one_hot[cat] = 1
             y2.append(one_hot)
         return np.array(y1), np.array(y2)
 
-    X_train_aug, y_train_aug = augment_data(
-        X_train, y_train, aug_cycles=5, batch_size=32
-    )
+    # X_train_aug, y_train_aug = augment_data(
+    #     X_train, y_train, aug_cycles=5, batch_size=32
+    # )
+    X_train_aug, y_train_aug = augment_data(X_train, y_train)
     print(f"X_train:{len(X_train)}")
     print(f"y_train:{len(y_train)}")
     show_images(X_train_aug, y_train_aug, n_images=20)
@@ -625,8 +701,11 @@ def evaluate_t2(
                 "Apple",
                 "Banana",
                 "Grape",
-                "Mango",
+                "Guava",
+                "Jujube",
                 "Orange",
+                "Pomegranate",
+                "Strawberry",
             ],
         )
         disp.plot(xticks_rotation=45, cmap="Blues")
@@ -724,7 +803,7 @@ for i in tqdm(range(RUNS)):
         fresh_predict = Dense(1, activation="sigmoid", name="fresh")(fresh_output)
 
         cat_output = Dense(EMBEDDING_DIM, activation="relu")(x)
-        cat_predict = Dense(5, activation="softmax", name="cat")(cat_output)
+        cat_predict = Dense(8, activation="softmax", name="cat")(cat_output)
 
         model = Model(inputs=inputs, outputs=[fresh_predict, cat_predict])
 

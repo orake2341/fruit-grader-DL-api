@@ -23,8 +23,11 @@ classes = [
     "Apple",
     "Banana",
     "Grape",
-    "Mango",
+    "Guava",
+    "Jujube",
     "Orange",
+    "Pomegranate",
+    "Strawberry",
 ]
 
 fresh = ["Fresh", "Rotten"]
