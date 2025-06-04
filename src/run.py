@@ -97,15 +97,16 @@ def predict_with_model(model, image_array):
     freshness_confidence = (
         (1 - freshness_score) if freshness == "Fresh" else freshness_score
     )
-    fruit_idx = np.argmax(pred_fruit[0])
-    fruit_label = classes[fruit_idx]
-    fruit_score = float(pred_fruit[0][fruit_idx])
+    top3_indices = np.argsort(pred_fruit[0])[::-1][:3]
+    top3_fruits = [
+        {"fruit": classes[i], "confidence": float(pred_fruit[0][i])}
+        for i in top3_indices
+    ]
 
     return {
         "freshness": freshness,
         "freshness_score": freshness_confidence,
-        "fruit": fruit_label,
-        "fruit_confidence": fruit_score,
+        "top3_fruits": top3_fruits,
     }
 
 

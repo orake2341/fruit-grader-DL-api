@@ -267,20 +267,21 @@ def show_images(images, labels, n_images=5):
 def augment_data(X_train, y_train):
     print("Starting augmentation with one instance per augmentation type...")
 
-    # Define individual augmentations with Albumentations
+    # Define individual augmentations (harder and more comprehensive)
     augmentations = [
-        A.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1),
+        A.Rotate(limit=45, border_mode=cv2.BORDER_CONSTANT, p=1.0),
         A.HorizontalFlip(p=1.0),
         A.VerticalFlip(p=1.0),
-        A.HueSaturationValue(
-            hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=1
+        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.2, p=1.0),
+        A.ShiftScaleRotate(
+            shift_limit=0.0,
+            scale_limit=0.2,
+            rotate_limit=0,
+            border_mode=cv2.BORDER_REFLECT,
+            p=1.0,
         ),
-        A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1),
-        A.CoarseDropout(
-            num_holes_range=(5, 10),
-            hole_height_range=(20, 20),
-            hole_width_range=(20, 20),
-            p=1,
+        A.Affine(
+            shear={"x": (-25, 25), "y": (-10, 10)}, mode=cv2.BORDER_CONSTANT, p=1.0
         ),
     ]
 
@@ -293,11 +294,11 @@ def augment_data(X_train, y_train):
 
         img = img.astype(np.float32)
         img = np.clip(img, 0.0, 1.0)
-        # Apply each augmentation and generate an augmented image
+
         for aug in augmentations:
             augmented = aug(image=img)
             aug_img = augmented["image"]
-            X_aug.append(np.clip(aug_img, 0.0, 1.0))  # Clip the values to [0, 1]
+            X_aug.append(np.clip(aug_img, 0.0, 1.0))
             y_aug.append(label)
 
     return np.array(X_aug), np.array(y_aug)
