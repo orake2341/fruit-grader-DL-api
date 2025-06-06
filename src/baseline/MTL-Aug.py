@@ -321,7 +321,6 @@ def base_net():
             K_NUM, (3, 3), padding="same", activation="relu", input_shape=(100, 100, 3)
         )
     )
-    base_model.add(Dropout(0.3))
     base_model.add(
         SeparableConv2D(
             K_NUM,
@@ -332,7 +331,6 @@ def base_net():
             activation="relu",
         )
     )
-    base_model.add(Dropout(0.4))
     base_model.add(
         SeparableConv2D(
             K_NUM,
@@ -343,7 +341,6 @@ def base_net():
             activation="relu",
         )
     )
-    base_model.add(Dropout(0.5))
     base_model.add(MaxPooling2D((3, 3)))
     base_model.add(Flatten())
     return base_model
@@ -556,8 +553,6 @@ def base_net_cbam():
     inputs = Input(shape=(100, 100, 3))
 
     x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
-    x = CBAMBlock(reduction_ratio=16)(x)
-    x = Dropout(0.3)(x)
     x = SeparableConv2D(
         K_NUM,
         (3, 3),
@@ -567,7 +562,6 @@ def base_net_cbam():
         activation="relu",
     )(x)
     x = CBAMBlock(reduction_ratio=16)(x)
-    x = Dropout(0.4)(x)
     x = SeparableConv2D(
         K_NUM,
         (3, 3),
@@ -577,7 +571,6 @@ def base_net_cbam():
         activation="relu",
     )(x)
     x = CBAMBlock(reduction_ratio=16)(x)
-    x = Dropout(0.5)(x)
     x = MaxPooling2D((3, 3))(x)
     x = Flatten()(x)
 
