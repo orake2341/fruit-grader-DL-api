@@ -869,7 +869,7 @@ for i in tqdm(range(RUNS)):
                 "cat": "kl_divergence",
             },
             loss_weights={"fresh": 0.4, "cat": 0.6},
-            optimizer=keras.optimizers.Adam(learning_rate=0.0005),
+            optimizer=keras.optimizers.Adam(learning_rate=0.0003),
             metrics=["accuracy", "accuracy"],
         )
 
