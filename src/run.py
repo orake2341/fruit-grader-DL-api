@@ -83,7 +83,7 @@ fresh = ["Fresh", "Rotten"]
 
 def preprocess_image(image_path):
     img = cv2.imread(image_path)
-    img = cv2.resize(img, (100, 100))
+    img = cv2.resize(img, (50, 50))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img / 255.0
     img = np.asarray(img, dtype=np.float64)

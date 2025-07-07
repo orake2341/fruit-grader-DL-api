@@ -51,6 +51,9 @@ import keras_core
 from keras_core import Layer
 from keras_core.saving import register_keras_serializable
 import albumentations as A
+from keras_core.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
+from keras_core import regularizers
+from sklearn.utils import class_weight
 
 keras_core.config.enable_unsafe_deserialization()
 # switch to torch backend
@@ -61,8 +64,9 @@ print("CUDA Available:", torch.cuda.is_available())
 print("Current device:", torch.cuda.current_device())
 print("Device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
 
-DATA_PATH = "../../data/Dataset"
-PICKLE_FILE = "../../data/fruit_mtl_data.pkl"
+DATA_PATH = r"data\Dataset"
+PICKLE_FILE = r"data\fruit_mtl_data.pkl"
+SPLIT_PICKLE_FILE = r"data\fruit_mtl_split_data.pkl"
 
 
 def load_rand():
@@ -75,7 +79,7 @@ def load_rand():
             if i >= 6:
                 break
             img = cv2.imread(os.path.join(path_main, img_name))
-            img = cv2.resize(img, (100, 100))
+            img = cv2.resize(img, (50, 50))
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             X.append(img)
             i += 1
@@ -107,6 +111,7 @@ show_subpot(X)
 del X
 
 
+# preprocessing
 def load_mtl_data(path=DATA_PATH):
     quality = ["Fresh", "Rotten"]
     cat = [
@@ -140,7 +145,7 @@ def load_mtl_data(path=DATA_PATH):
 
         for img_name in os.listdir(path_main):
             img = cv2.imread(os.path.join(path_main, img_name))
-            img = cv2.resize(img, (100, 100))
+            img = cv2.resize(img, (50, 50))
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             z.append([img, [fresh_index, cat_index]])
 
@@ -196,25 +201,30 @@ def show_images(images, labels, n_images=5):
     plt.show()
 
 
+# Augmentation
 def augment_data(X_train, y_train):
     print("Starting augmentation with one instance per augmentation type...")
 
-    # Define individual augmentations (harder and more comprehensive)
     augmentations = [
-        A.Rotate(limit=45, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+        A.Rotate(limit=15, border_mode=cv2.BORDER_REFLECT, p=1.0),
         A.HorizontalFlip(p=1.0),
-        A.VerticalFlip(p=1.0),
-        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.2, p=1.0),
+        A.RandomBrightnessContrast(brightness_limit=0.15, contrast_limit=0.1, p=1.0),
         A.ShiftScaleRotate(
             shift_limit=0.0,
-            scale_limit=0.2,
+            scale_limit=0.1,
             rotate_limit=0,
             border_mode=cv2.BORDER_REFLECT,
             p=1.0,
         ),
-        A.Affine(
-            shear={"x": (-25, 25), "y": (-10, 10)}, mode=cv2.BORDER_CONSTANT, p=1.0
+        A.Affine(shear={"x": (-10, 10), "y": (-5, 5)}, mode=cv2.BORDER_REFLECT, p=1.0),
+        A.ToGray(p=1.0),
+        A.Lambda(
+            image=lambda x, **kwargs: cv2.cvtColor(x, cv2.COLOR_GRAY2RGB)
+            if len(x.shape) == 2 or x.shape[2] == 1
+            else x,
+            p=1.0,
         ),
+        A.GaussNoise(var_limit=(5.0, 25.0), p=1.0),
     ]
 
     X_aug = []
@@ -230,24 +240,177 @@ def augment_data(X_train, y_train):
         for aug in augmentations:
             augmented = aug(image=img)
             aug_img = augmented["image"]
+            aug_img = cv2.resize(aug_img, (50, 50))
+            if aug_img.ndim == 2:
+                aug_img = cv2.cvtColor(aug_img, cv2.COLOR_GRAY2RGB)
+            elif aug_img.shape[-1] == 1:
+                aug_img = np.repeat(aug_img, 3, axis=-1)
+            if aug_img.shape[:2] != (50, 50):
+                aug_img = cv2.resize(aug_img, (50, 50))
             X_aug.append(np.clip(aug_img, 0.0, 1.0))
             y_aug.append(label)
 
-    return np.array(X_aug), np.array(y_aug)
+    return np.array(X_aug, dtype=np.float32), np.array(y_aug)
 
 
-def split_data(test_size=0.3, seed=None):
+def create_and_save_splits():
+    """Create train/val/test splits once and save them"""
+    print("Creating consistent data splits...")
+
+    # Load the original data
+    if not os.path.exists(PICKLE_FILE):
+        print("Original pickle file not found. Loading data from scratch...")
+        X, Y = load_mtl_data(path=DATA_PATH)
+        label_all = []
+        for i in range(len(X)):
+            label_all.append(str(Y[0][i]) + str(np.argmax(Y[1][i])))
+        label_all = np.array(label_all)
+        pickle.dump([X, Y, label_all], open(PICKLE_FILE, "wb"))
+        print(f"Original data saved to {PICKLE_FILE}")
+    else:
+        print("Loading original data from pickle...")
+        X, Y, label_all = pickle.load(open(PICKLE_FILE, "rb"))
+        print(f"Loaded data: X shape = {X.shape}, Labels = {len(label_all)}")
+
+    # Create splits with fixed seed for reproducibility
+    print("Creating train/temp split (70/30)...")
     X_train, X_temp, y_train, y_temp = train_test_split(
-        X, label_all, test_size=0.30, stratify=label_all, random_state=seed
+        X, label_all, test_size=0.30, stratify=label_all, random_state=42
     )
 
+    print("Creating validation/test split (15/15)...")
     X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.50, stratify=y_temp, random_state=seed
+        X_temp, y_temp, test_size=0.50, stratify=y_temp, random_state=42
     )
-    print(f"X_train dtype: {X_train.dtype}, min: {X_train.min()}, max: {X_train.max()}")
-    show_images(X_train, y_train, n_images=5)
 
     def split_labels(label_comb):
+        """Split combined labels into freshness and category labels"""
+        y1 = []  # Freshness (0 or 1)
+        y2 = []  # Category (one-hot encoded)
+        for item in label_comb:
+            fresh = int(item[0])
+            cat = int(item[1])
+            y1.append(fresh)
+            one_hot = [0] * 8
+            one_hot[cat] = 1
+            y2.append(one_hot)
+        return np.array(y1), np.array(y2)
+
+    # Split labels for validation and test sets
+    y_val_t1, y_val_t2 = split_labels(y_val)
+    y_test_t1, y_test_t2 = split_labels(y_test)
+
+    # Print split information
+    print(f"\nDataset splits created:")
+    print(f"Training set: {len(X_train)} samples")
+    print(f"Validation set: {len(X_val)} samples")
+    print(f"Test set: {len(X_test)} samples")
+    print(f"Total: {len(X_train) + len(X_val) + len(X_test)} samples")
+
+    # Check class distribution
+    print(f"\nClass distribution in training set:")
+    unique_train, counts_train = np.unique(y_train, return_counts=True)
+    for label, count in zip(unique_train, counts_train):
+        print(f"  {label}: {count} samples")
+
+    # Save the split data
+    split_data = {
+        "X_train": X_train,
+        "X_val": X_val,
+        "X_test": X_test,
+        "y_train": y_train,
+        "y_val": y_val,
+        "y_test": y_test,
+        "y_val_mtl": [y_val_t1, y_val_t2],
+        "y_test_mtl": [y_test_t1, y_test_t2],
+        "y_test_t1": y_test_t1,
+        "y_test_t2": y_test_t2,
+        "split_info": {
+            "train_size": len(X_train),
+            "val_size": len(X_val),
+            "test_size": len(X_test),
+            "random_state": 42,
+            "test_size_ratio": 0.30,
+            "val_test_split_ratio": 0.50,
+        },
+    }
+
+    pickle.dump(split_data, open(SPLIT_PICKLE_FILE, "wb"))
+    print(f"\nSplit data saved to {SPLIT_PICKLE_FILE}")
+    return split_data
+
+
+def load_consistent_splits():
+    """Load pre-split data"""
+    if not os.path.exists(SPLIT_PICKLE_FILE):
+        print("Split file not found. Creating new splits...")
+        return create_and_save_splits()
+    else:
+        print("Loading existing consistent splits...")
+        split_data = pickle.load(open(SPLIT_PICKLE_FILE, "rb"))
+
+        # Print split information
+        info = split_data["split_info"]
+        print(
+            f"Loaded splits with {info['train_size']} train, {info['val_size']} val, {info['test_size']} test samples"
+        )
+        return split_data
+
+
+def show_split_info(split_data):
+    """Display information about the splits"""
+    X_train = split_data["X_train"]
+    X_val = split_data["X_val"]
+    X_test = split_data["X_test"]
+    y_train = split_data["y_train"]
+
+    print("=" * 50)
+    print("CONSISTENT DATA SPLITS INFORMATION")
+    print("=" * 50)
+    print(f"Training set: {len(X_train)} samples")
+    print(f"Validation set: {len(X_val)} samples")
+    print(f"Test set: {len(X_test)} samples")
+    print(f"Total: {len(X_train) + len(X_val) + len(X_test)} samples")
+
+    # Show some sample images from training set
+    print(f"\nSample training images:")
+    show_images(X_train, y_train, n_images=5)
+
+    # Class distribution
+    unique_labels, counts = np.unique(y_train, return_counts=True)
+    print(f"\nClass distribution in training set:")
+    categories = [
+        "Apple",
+        "Banana",
+        "Grape",
+        "Guava",
+        "Jujube",
+        "Orange",
+        "Pomegranate",
+        "Strawberry",
+    ]
+    for label, count in zip(unique_labels, counts):
+        fresh = "Fresh" if label[0] == "0" else "Rotten"
+        category = categories[int(label[1])]
+        print(f"  {fresh} {category} ({label}): {count} samples")
+
+
+# Modified split_data function that uses pre-split data
+def split_data_consistent():
+    """Use consistent pre-split data with augmentation applied to training set"""
+
+    # Load the consistent splits
+    split_data = load_consistent_splits()
+
+    X_train = split_data["X_train"]
+    y_train = split_data["y_train"]
+
+    print("Applying augmentation to training data...")
+    # Apply augmentation to training data
+    X_train_aug, y_train_aug = augment_data(X_train, y_train)
+
+    def split_labels(label_comb):
+        """Split combined labels into freshness and category labels"""
         y1 = []  # Freshness
         y2 = []  # Category (one-hot)
         for item in label_comb:
@@ -259,47 +422,23 @@ def split_data(test_size=0.3, seed=None):
             y2.append(one_hot)
         return np.array(y1), np.array(y2)
 
-    # X_train_aug, y_train_aug = augment_data(
-    #     X_train, y_train, aug_cycles=5, batch_size=32
-    # )
-    X_train_aug, y_train_aug = augment_data(X_train, y_train)
-    print(f"X_train:{len(X_train)}")
-    print(f"y_train:{len(y_train)}")
-    show_images(X_train_aug, y_train_aug, n_images=20)
-    print(
-        f"X_train dtype: {X_train_aug.dtype}, min: {X_train_aug.min()}, max: {X_train_aug.max()}"
-    )
-    print(f"X_train dtype: {X_val.dtype}, min: {X_val.min()}, max: {X_val.max()}")
-    print(f"X_train dtype: {X_test.dtype}, min: {X_test.min()}, max: {X_test.max()}")
+    # Process augmented training labels
     y_train_aug_t1, y_train_aug_t2 = split_labels(y_train_aug)
-    y_val_t1, y_val_t2 = split_labels(y_val)
-    y_test_t1, y_test_t2 = split_labels(y_test)
-
-    print(f"X_train:{len(X_train_aug)}")
-    print(f"y_traint1:{len(y_train_aug_t1)}")
-    print(f"y_traint2:{len(y_train_aug_t2)}")
-
-    print(f"testT1:{y_test_t1}")
-    print(f"testT2:{y_test_t2}")
-
-    print(f"validT1:{y_val_t1}")
-    print(f"validT2:{y_val_t2}")
-    y_val_t1 = np.array(y_val_t1)
-    y_val_t2 = np.array(y_val_t2)
-
     y_train_aug_mtl = [y_train_aug_t1, y_train_aug_t2]
-    y_test_mtl = [y_test_t1, y_test_t2]
-    y_val_mtl = [y_val_t1, y_val_t2]
+
+    print(f"Augmented training data: {len(X_train_aug)} samples")
+    print(f"Validation data: {len(split_data['X_val'])} samples")
+    print(f"Test data: {len(split_data['X_test'])} samples")
 
     return (
         X_train_aug,
-        X_test,
-        y_test_t1,
-        y_test_t2,
+        split_data["X_test"],
+        split_data["y_test_t1"],
+        split_data["y_test_t2"],
         y_train_aug_mtl,
-        y_test_mtl,
-        X_val,
-        y_val_mtl,
+        split_data["y_test_mtl"],
+        split_data["X_val"],
+        split_data["y_val_mtl"],
     )
 
 
@@ -314,35 +453,66 @@ EPOCHS = 15  # max epochs to train for various models
 BATCH_SIZE = 16  # 18 default
 
 
+# BASELINE
 def base_net():
     base_model = Sequential()
     base_model.add(
         Conv2D(
-            K_NUM, (3, 3), padding="same", activation="relu", input_shape=(100, 100, 3)
+            32,
+            (3, 3),
+            padding="same",
+            activation="relu",
+            input_shape=(50, 50, 3),
         )
     )
     base_model.add(
         SeparableConv2D(
-            K_NUM,
+            32,
             (3, 3),
             padding="same",
+            activation="relu",
             depthwise_initializer="he_uniform",
             pointwise_initializer="he_uniform",
-            activation="relu",
         )
     )
     base_model.add(
         SeparableConv2D(
-            K_NUM,
+            32,
             (3, 3),
             padding="same",
+            activation="relu",
             depthwise_initializer="he_uniform",
             pointwise_initializer="he_uniform",
-            activation="relu",
         )
     )
+    # base_model.add(
+    #     Conv2D(
+    #         K_NUM, (3, 3), padding="same", activation="relu", input_shape=(50, 50, 3)
+    #     )
+    # )
+    # base_model.add(
+    #     SeparableConv2D(
+    #         K_NUM,
+    #         (3, 3),
+    #         padding="same",
+    #         depthwise_initializer="he_uniform",
+    #         pointwise_initializer="he_uniform",
+    #         activation="relu",
+    #     )
+    # )
+    # base_model.add(
+    #     SeparableConv2D(
+    #         K_NUM,
+    #         (3, 3),
+    #         padding="same",
+    #         depthwise_initializer="he_uniform",
+    #         pointwise_initializer="he_uniform",
+    #         activation="relu",
+    #     )
+    # )
     base_model.add(MaxPooling2D((3, 3)))
     base_model.add(Flatten())
+
     return base_model
 
 
@@ -385,6 +555,7 @@ def base_net():
 #     return feature
 
 
+# CBAM BLOCK
 @register_keras_serializable()
 class CBAMBlock(Layer):
     """
@@ -549,42 +720,80 @@ class CBAMBlock(Layer):
         return cls(**config)
 
 
+# CBAM
 def base_net_cbam():
-    inputs = Input(shape=(100, 100, 3))
+    inputs = Input(shape=(50, 50, 3))
+    x = Conv2D(
+        32,
+        (3, 3),
+        padding="same",
+        activation="relu",
+        kernel_regularizer=regularizers.l2(1e-4),
+    )(inputs)
 
-    x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
     x = SeparableConv2D(
-        K_NUM,
+        32,
         (3, 3),
         padding="same",
+        activation="relu",
         depthwise_initializer="he_uniform",
         pointwise_initializer="he_uniform",
-        activation="relu",
+        depthwise_regularizer=regularizers.l2(1e-4),
+        pointwise_regularizer=regularizers.l2(1e-4),
     )(x)
+
     x = CBAMBlock(reduction_ratio=16)(x)
+
     x = SeparableConv2D(
-        K_NUM,
+        32,
         (3, 3),
         padding="same",
+        activation="relu",
         depthwise_initializer="he_uniform",
         pointwise_initializer="he_uniform",
-        activation="relu",
+        depthwise_regularizer=regularizers.l2(1e-4),
+        pointwise_regularizer=regularizers.l2(1e-4),
     )(x)
+    # x = Conv2D(K_NUM, (3, 3), padding="same", activation="relu")(inputs)
+    # x = SeparableConv2D(
+    #     K_NUM,
+    #     (3, 3),
+    #     padding="same",
+    #     depthwise_initializer="he_uniform",
+    #     pointwise_initializer="he_uniform",
+    #     activation="relu",
+    # )(x)
+    # x = CBAMBlock(reduction_ratio=16)(x)
+    # x = SeparableConv2D(
+    #     K_NUM,
+    #     (3, 3),
+    #     padding="same",
+    #     depthwise_initializer="he_uniform",
+    #     pointwise_initializer="he_uniform",
+    #     activation="relu",
+    # )(x)
     x = CBAMBlock(reduction_ratio=16)(x)
     x = MaxPooling2D((3, 3))(x)
     x = Flatten()(x)
+    x = Dropout(0.5)(x)
 
     return Model(inputs, x)
 
 
 def show_feature_maps(model, X_test, layer_name, n_images=5):
-    try:
-        # Try getting "sequential" first
-        backbone_layer = model.get_layer("sequential")
-    except ValueError:
-        # If not found, fall back to "functional"
-        backbone_layer = model.get_layer("functional_15")
-
+    # try:
+    #     # Try getting "sequential" first
+    #     backbone_layer = model.get_layer("sequential")
+    # except ValueError:
+    #     # If not found, fall back to "functional"
+    #     backbone_layer = model.get_layer("functional_15")
+    backbone_layer = None
+    for layer in model.layers:
+        if layer.__class__.__name__ in ["Sequential", "Functional"]:
+            backbone_layer = layer
+            break
+    if backbone_layer is None:
+        raise ValueError("No backbone (Sequential or Functional) layer found in model.")
     # Step 2: Create a model up to the target layer inside sequential
     inputs = keras_core.Input(shape=model.input_shape[1:])  # fresh input
     x = inputs
@@ -616,10 +825,8 @@ def show_feature_maps(model, X_test, layer_name, n_images=5):
     feature_model = Model(inputs=inputs, outputs=x)  # build small feature map model
     print(feature_model.summary(expand_nested=True))
 
-    # Step 3: Predict
     feature_maps = feature_model.predict(X_test[:n_images])
 
-    # Step 4: Plot
     for i in range(n_images):
         plt.figure(figsize=(15, 15))
         n_features = feature_maps.shape[-1]
@@ -633,67 +840,90 @@ def show_feature_maps(model, X_test, layer_name, n_images=5):
         plt.show()
 
 
-def draw_training_curve(history, title=""):
-    plt.figure(1, figsize=(20, 8))
-    # plt.title('STL' + title)
+class TestEvaluationCallback(keras.callbacks.Callback):
+    def __init__(self, test_data, test_labels):
+        super().__init__()
+        self.test_data = test_data
+        self.test_labels = test_labels
+        self.test_loss = []
+        self.test_fresh_accuracy = []
+        self.test_cat_accuracy = []
 
-    plt.subplot(1, 2, 1)
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.plot(history.history["loss"], label="Training Loss")
-    plt.plot(history.history["val_loss"], label="Validation Loss")
-    plt.grid(True)
-    plt.legend()
+    def on_epoch_end(self, epoch, logs=None):
+        # Evaluate on test set
+        test_results = self.model.evaluate(self.test_data, self.test_labels, verbose=0)
 
-    plt.subplot(1, 2, 2)
-    plt.xlabel("Epochs")
-    plt.ylabel("Accuracy")
-    plt.plot(history.history["accuracy"], label="Training Accuracy")
-    plt.plot(history.history["val_accuracy"], label="Validation Accuracy")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
+        # Extract metrics (adjust indices based on your model's output order)
+        test_loss = test_results[0]  # Total loss
+        test_fresh_acc = test_results[2]  # Category task accuracy
+        test_cat_acc = test_results[1]  # Fresh task accuracy
+
+        # Store results
+        self.test_loss.append(test_loss)
+        self.test_fresh_accuracy.append(test_fresh_acc)
+        self.test_cat_accuracy.append(test_cat_acc)
+
+        # Add to logs for history tracking
+        logs["test_loss"] = test_loss
+        logs["test_fresh_accuracy"] = test_fresh_acc
+        logs["test_cat_accuracy"] = test_cat_acc
+
+        print(
+            f" - test_loss: {test_loss:.4f} - test_fresh_accuracy: {test_fresh_acc:.4f} - test_cat_accuracy: {test_cat_acc:.4f}"
+        )
 
 
-def draw_training_curve_MTL(history, architecture=None):
-    plt.figure(1, figsize=(20, 8))
+def draw_training_curve_MTL(history, architecture=None, save_dir=r"results\plots"):
+    os.makedirs(save_dir, exist_ok=True)
+    plt.figure(1, figsize=(25, 8))
     filename = f"{architecture}_training_curve_MTL.png"
-    plt.subplot(1, 3, 1)
+    filepath = os.path.join(save_dir, filename)
+    plt.subplot(1, 4, 1)
     plt.xlabel("Epochs")
     plt.ylabel("Total Loss")
     plt.plot(history.history["loss"], label="Training Loss")
     plt.plot(history.history["val_loss"], label="Validation Loss")
+    # Add test loss if available
+    if "test_loss" in history.history:
+        plt.plot(history.history["test_loss"], label="Test Loss")
     plt.grid(True)
     plt.legend()
 
-    plt.subplot(1, 3, 2)
+    plt.subplot(1, 4, 2)
     plt.xlabel("Epochs")
-    plt.ylabel("T1 Accuracy")
+    plt.ylabel("T1 Accuracy (Freshness)")
     plt.plot(history.history["fresh_accuracy"], label="Training Accuracy")
     plt.plot(history.history["val_fresh_accuracy"], label="Validation Accuracy")
+    # Add test accuracy if available
+    if "test_fresh_accuracy" in history.history:
+        plt.plot(history.history["test_fresh_accuracy"], label="Test Accuracy")
     plt.grid(True)
     plt.legend()
 
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 4, 3)
     plt.xlabel("Epochs")
-    plt.ylabel("T2 Accuracy")
+    plt.ylabel("T2 Accuracy (Category)")
     plt.plot(history.history["cat_accuracy"], label="Training Accuracy")
     plt.plot(history.history["val_cat_accuracy"], label="Validation Accuracy")
+    # Add test accuracy if available
+    if "test_cat_accuracy" in history.history:
+        plt.plot(history.history["test_cat_accuracy"], label="Test Accuracy")
     plt.grid(True)
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig(filename)  # Save the plot to file
+    plt.savefig(filepath)
     plt.show()
 
 
+# Creates  Confustion matrix and generate precision, recall, f1, accuracy for freshness classification(T1)
 def evaluate_t1(
     X_test,
     y_test,
     best_model,
     MTL=False,
     show_cm=False,
-    save_dir="confusion_matrices",
+    save_dir=r"results\confusion_matrices",
     run_id=None,
     architecture=None,
 ):
@@ -712,9 +942,9 @@ def evaluate_t1(
         plt.tight_layout()
         architecture_str = f"_{architecture}" if architecture else ""
         filename = (
-            f"confusion_matrix_t2_{architecture_str}_run_{run_id}.png"
+            f"confusion_matrix_t1_{architecture_str}_run_{run_id}.png"
             if run_id
-            else f"confusion_matrix_t2_{architecture_str}.png"
+            else f"confusion_matrix_t1_{architecture_str}.png"
         )
         plt.savefig(os.path.join(save_dir, filename))
         plt.show()
@@ -726,13 +956,14 @@ def evaluate_t1(
     return precision, recall, f1, accuracy
 
 
+# Creates  Confustion matrix and generate precision, recall, f1, accuracy for fruit type classification(T2)
 def evaluate_t2(
     X_test,
     y_test,
     best_model,
     MTL=False,
     show_cm=False,
-    save_dir="confusion_matrices",
+    save_dir=r"results\confusion_matrices",
     run_id=None,
     architecture=None,
 ):
@@ -769,9 +1000,9 @@ def evaluate_t2(
         plt.tight_layout()
         architecture_str = f"_{architecture}" if architecture else ""
         filename = (
-            f"confusion_matrix_t1_{architecture_str}_run_{run_id}.png"
+            f"confusion_matrix_t2_{architecture_str}_run_{run_id}.png"
             if run_id
-            else f"confusion_matrix_t1_{architecture_str}.png"
+            else f"confusion_matrix_t2_{architecture_str}.png"
         )
         plt.savefig(os.path.join(save_dir, filename))
         plt.show()
@@ -784,7 +1015,7 @@ def evaluate_t2(
 
 
 # define some common callbacks
-lr_rate = keras.callbacks.ReduceLROnPlateau(
+lr_rate = ReduceLROnPlateau(
     monitor="val_loss",
     factor=0.5,
     patience=6,
@@ -794,7 +1025,7 @@ lr_rate = keras.callbacks.ReduceLROnPlateau(
     cooldown=2,
 )
 
-es = keras.callbacks.EarlyStopping(monitor="val_loss", patience=4)
+es = EarlyStopping(monitor="val_loss", patience=4)
 
 
 architectures = {
@@ -842,8 +1073,7 @@ for i in tqdm(range(RUNS)):
         y_test_mtl,
         X_val,
         y_val_mtl,
-    ) = split_data(0.3)
-
+    ) = split_data_consistent()
     # Store metrics for both architectures
     print(X_train_aug.shape)
     # Run both architectures
@@ -851,7 +1081,7 @@ for i in tqdm(range(RUNS)):
         display(HTML(f"<h2>Training architecture: {arch_name.upper()}</h2>"))
         start_time = time.time()
         # Prepare model
-        inputs = Input(shape=(100, 100, 3))
+        inputs = Input(shape=(50, 50, 3))
         x = arch_fn()(inputs)
 
         # Define the task-specific outputs
@@ -869,11 +1099,11 @@ for i in tqdm(range(RUNS)):
                 "cat": "kl_divergence",
             },
             loss_weights={"fresh": 0.4, "cat": 0.6},
-            optimizer=keras.optimizers.Adam(learning_rate=0.0003),
+            optimizer=keras.optimizers.Adam(learning_rate=0.0001),
             metrics=["accuracy", "accuracy"],
         )
 
-        model_path = f"{arch_name}_mtl_run{i + 1}.keras"
+        model_path = f"models/{arch_name}_mtl_run{i + 1}.keras"
         check_point = keras.callbacks.ModelCheckpoint(
             filepath=model_path,
             monitor="val_loss",
@@ -883,17 +1113,20 @@ for i in tqdm(range(RUNS)):
             mode="min",
         )
 
+        test_callback = TestEvaluationCallback(
+            test_data=X_test, test_labels={"fresh": y_test_mtl[0], "cat": y_test_mtl[1]}
+        )
+
         # Train the model
         history = model.fit(
             X_train_aug,
-            y_train_aug_mtl,
+            {"fresh": y_train_aug_mtl[0], "cat": y_train_aug_mtl[1]},
+            validation_data=(X_val, {"fresh": y_val_mtl[0], "cat": y_val_mtl[1]}),
             batch_size=BATCH_SIZE,
-            validation_data=(X_val, y_val_mtl),
             epochs=EPOCHS,
-            callbacks=[check_point, lr_rate],
+            callbacks=[check_point, lr_rate, es, test_callback],
         )
 
-        # Draw training curves
         draw_training_curve_MTL(history, architecture=arch_name)
 
         # Load the best model
@@ -943,11 +1176,12 @@ for i in tqdm(range(RUNS)):
             f"⏱️ Time taken for {arch_name.upper()} in RUN #{i + 1}: {elapsed_time:.2f} seconds"
         )
 
-# Save metrics for both architectures in a single file
-metrics_df = pd.DataFrame()
-for arch_name in architectures.keys():
-    for metric_name, values in arch_metrics[arch_name].items():
-        metrics_df[f"{arch_name}_{metric_name}"] = values
+for i in tqdm(range(RUNS)):
+    # Save metrics for both architectures in a single file
+    metrics_df = pd.DataFrame()
+    for arch_name in architectures.keys():
+        for metric_name, values in arch_metrics[arch_name].items():
+            metrics_df[f"{arch_name}_{metric_name}"] = values
 
-# Save to Excel file after each run
-metrics_df.to_excel(f"../../data/metrics_run_{i + 1}.xlsx", index=False)
+    # Save to Excel file after each run
+    metrics_df.to_excel(excel_writer=r"results\metrics_run.xlsx", index=False)

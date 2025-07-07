@@ -1,19 +1,22 @@
 data/
 models/
-src/baseline/yolov5
-src/baseline/second
-src/baseline/first
-src/baseline/confusion_matrices
-src/baseline/asd
-src/baseline/base_mtl_run1.keras
-src/baseline/cbam_mtl_run1.keras
-src/baseline/efficientnet_mtl_run1.keras
-src/baseline/CBAMvsBASE
-src/baseline/results
-src/baseline/latest
-src/baseline/latest1
-src/baseline/latest2
-src/baseline/new folder
-src/baseline/new foler 1
-src/baseline/new
-src/baseline/new1
+src/training/yolov5
+src/training/second
+src/training/first
+src/training/confusion_matrices
+src/training/asd
+src/training/base_mtl_run1.keras
+src/training/cbam_mtl_run1.keras
+src/training/efficientnet_mtl_run1.keras
+src/training/CBAMvsBASE
+src/training/results
+src/training/latest
+src/training/latest1
+src/training/latest2
+src/training/new folder
+src/training/new folder (2)
+src/training/new folder (3)
+src/training/new folder (4)
+src/training/new foler 1
+src/training/new
+src/training/new1
