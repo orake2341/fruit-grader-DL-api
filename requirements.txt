@@ -1,10 +1,16 @@
-flask
-flask_cors
-opencv-python
 numpy
-pillow
 pandas
+opencv-python
+matplotlib
+seaborn
+tqdm
+scipy
 scikit-learn
+keras-core
+tensorflow
+ipython
 albumentations
-ipykernel
-python-dotenv
+--index-url https://download.pytorch.org/whl/cu118
+torch
+torchvision
+torchaudio
