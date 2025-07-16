@@ -10,3 +10,5 @@ keras-core
 tensorflow
 ipython
 albumentations
+flask
+flask-cors
