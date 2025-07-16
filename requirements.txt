@@ -12,3 +12,6 @@ ipython
 albumentations
 flask
 flask-cors
+torch 
+torchvision 
+torchaudio
